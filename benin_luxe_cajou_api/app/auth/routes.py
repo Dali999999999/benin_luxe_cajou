@@ -221,7 +221,7 @@ def admin_login():
         
         if admin.check_password(password):
             # Création du token JWT qui contient l'ID de l'admin
-            access_token = create_access_token(identity=admin.id)
+            access_token = create_access_token(identity=str(admin.id))
             
             print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Connexion réussie: {email} - ID: {admin.id} - IP: {client_ip}")
             print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🎫 Token JWT généré pour ID: {admin.id}")
@@ -351,3 +351,4 @@ def admin_reset_password():
 # Les routes pour l'inscription et la connexion des clients seront ici
 # et suivront une logique similaire mais avec `role='client'`.
 # ...
+
