@@ -18,17 +18,14 @@ class Utilisateur(db.Model):
     token_verification = db.Column(db.String(64))
     derniere_connexion = db.Column(db.TIMESTAMP)
     date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
-
     adresses = relationship('AdresseLivraison', backref='utilisateur', lazy=True, cascade="all, delete-orphan")
     commandes = relationship('Commande', backref='client', lazy=True)
     notifications = relationship('Notification', backref='utilisateur', lazy=True, cascade="all, delete-orphan")
     paniers = relationship('Panier', backref='utilisateur', lazy=True, cascade="all, delete-orphan")
     avis = relationship('AvisProduit', backref='utilisateur', lazy=True, cascade="all, delete-orphan")
-
     def set_password(self, password):
         pw_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
         self.mot_de_passe = pw_hash.decode('utf-8')
-
     def check_password(self, password):
         return bcrypt.checkpw(password.encode('utf-8'), self.mot_de_passe.encode('utf-8'))
 
@@ -39,6 +36,9 @@ class Categorie(db.Model):
     description = db.Column(db.Text)
     image_url = db.Column(db.String(255))
     statut = db.Column(db.Enum('actif', 'inactif'), nullable=False, default='actif')
+    # <<<--- CORRECTION : Ajout des champs de date manquants
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+    date_modification = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
     types_produits = relationship('TypeProduit', backref='categorie', lazy=True)
 
 class TypeProduit(db.Model):
@@ -49,6 +49,9 @@ class TypeProduit(db.Model):
     description = db.Column(db.Text)
     image_url = db.Column(db.String(255))
     statut = db.Column(db.Enum('actif', 'inactif'), nullable=False, default='actif')
+    # <<<--- CORRECTION : Ajout des champs de date manquants
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+    date_modification = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
     produits = relationship('Produit', backref='type_produit', lazy=True)
 
 class Produit(db.Model):
@@ -64,6 +67,9 @@ class Produit(db.Model):
     stock_disponible = db.Column(db.Integer, default=0)
     stock_minimum = db.Column(db.Integer, default=5)
     statut = db.Column(db.Enum('actif', 'inactif', 'rupture_stock'), nullable=False, default='actif')
+    # <<<--- CORRECTION : Ajout des champs de date manquants
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+    date_modification = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
     images = relationship('ImageProduit', backref='produit', lazy=True, cascade="all, delete-orphan")
     avis = relationship('AvisProduit', backref='produit', lazy=True, cascade="all, delete-orphan")
 
@@ -92,6 +98,7 @@ class AdresseLivraison(db.Model):
     precision_gps = db.Column(db.Integer)
     type_adresse = db.Column(db.Enum('manuelle', 'gps_actuelle', 'gps_choisie'), nullable=False)
     est_defaut = db.Column(db.Boolean, default=False)
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
 
 class Commande(db.Model):
     __tablename__ = 'commandes'
@@ -111,7 +118,7 @@ class Commande(db.Model):
     date_commande = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
     date_livraison_prevue = db.Column(db.Date)
     date_livraison_effective = db.Column(db.DateTime)
-    
+    date_modification = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
     details = relationship('DetailsCommande', back_populates='commande', cascade="all, delete-orphan")
     suivi = relationship('SuiviCommande', backref='commande', lazy=True, cascade="all, delete-orphan")
     paiements = relationship('Paiement', backref='commande', lazy=True, cascade="all, delete-orphan")
@@ -126,7 +133,7 @@ class DetailsCommande(db.Model):
     quantite = db.Column(db.Integer, nullable=False)
     prix_unitaire = db.Column(db.Numeric(10, 2), nullable=False)
     sous_total = db.Column(db.Numeric(10, 2), nullable=False)
-    
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
     commande = relationship('Commande', back_populates='details')
     produit = relationship('Produit')
 
@@ -150,6 +157,7 @@ class Paiement(db.Model):
     methode_paiement = db.Column(db.String(50))
     reference_paiement = db.Column(db.String(100))
     callback_data = db.Column(db.JSON)
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
     date_paiement = db.Column(db.TIMESTAMP)
 
 class Notification(db.Model):
@@ -160,6 +168,7 @@ class Notification(db.Model):
     titre = db.Column(db.String(200), nullable=False)
     message = db.Column(db.Text, nullable=False)
     est_lu = db.Column(db.Boolean, default=False)
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
     date_lecture = db.Column(db.TIMESTAMP)
 
 class Panier(db.Model):
@@ -169,6 +178,9 @@ class Panier(db.Model):
     utilisateur_id = db.Column(db.Integer, db.ForeignKey('utilisateurs.id'))
     produit_id = db.Column(db.Integer, db.ForeignKey('produits.id'), nullable=False)
     quantite = db.Column(db.Integer, nullable=False)
+    # <<<--- CORRECTION : Ajout des champs de date manquants
+    date_ajout = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+    date_modification = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
     produit = relationship('Produit')
 
 class AvisProduit(db.Model):
@@ -180,6 +192,7 @@ class AvisProduit(db.Model):
     note = db.Column(db.Integer, nullable=False)
     commentaire = db.Column(db.Text)
     statut = db.Column(db.Enum('en_attente', 'approuve', 'rejete'), default='en_attente')
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
 
 class Coupon(db.Model):
     __tablename__ = 'coupons'
@@ -194,6 +207,8 @@ class Coupon(db.Model):
     limite_utilisation = db.Column(db.Integer)
     utilisations_actuelles = db.Column(db.Integer, default=0)
     statut = db.Column(db.Enum('actif', 'inactif'), default='actif')
+    # <<<--- CORRECTION : Ajout du champ de date manquant pour la cohérence
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
 
 class ParametreSite(db.Model):
     __tablename__ = 'parametres_site'
@@ -202,6 +217,7 @@ class ParametreSite(db.Model):
     valeur = db.Column(db.Text)
     description = db.Column(db.String(255))
     type = db.Column(db.Enum('string', 'number', 'boolean', 'json'), nullable=False)
+    date_modification = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
 
 class ZoneLivraison(db.Model):
     __tablename__ = 'zones_livraison'
@@ -210,5 +226,5 @@ class ZoneLivraison(db.Model):
     villes = db.Column(db.Text)
     tarif_livraison = db.Column(db.Numeric(8, 2), nullable=False)
     delai_livraison_jours = db.Column(db.Integer, default=3)
-
     actif = db.Column(db.Boolean, default=True)
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
