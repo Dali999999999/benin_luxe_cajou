@@ -75,6 +75,7 @@ class ImageProduit(db.Model):
     alt_text = db.Column(db.String(255))
     ordre_affichage = db.Column(db.Integer, default=1)
     est_principale = db.Column(db.Boolean, default=False)
+    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
 
 class AdresseLivraison(db.Model):
     __tablename__ = 'adresses_livraison'
@@ -209,4 +210,5 @@ class ZoneLivraison(db.Model):
     villes = db.Column(db.Text)
     tarif_livraison = db.Column(db.Numeric(8, 2), nullable=False)
     delai_livraison_jours = db.Column(db.Integer, default=3)
+
     actif = db.Column(db.Boolean, default=True)
