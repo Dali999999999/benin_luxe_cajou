@@ -9,6 +9,7 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
+    JWT_TOKEN_LOCATION = ["headers"]
     CLOUDINARY_URL = os.environ.get('CLOUDINARY_URL')
 
     # Configuration de Flask-Mail
@@ -18,4 +19,5 @@ class Config:
     MAIL_USE_SSL = os.environ.get('MAIL_USE_SSL', 'false').lower() in ['true', 'on', '1']
     MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
     MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
+
     MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER')
