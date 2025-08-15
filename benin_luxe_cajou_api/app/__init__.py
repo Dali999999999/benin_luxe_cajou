@@ -23,8 +23,11 @@ def create_app(config_class=Config):
 
     from .auth.routes import auth_bp
     from .admin.routes import admin_bp
+    from .products_admin.routes import products_admin_bp
     
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
+    app.register_blueprint(products_admin_bp, url_prefix='/api/admin')
+
 
     return app
