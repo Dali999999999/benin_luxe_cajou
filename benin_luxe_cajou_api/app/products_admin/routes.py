@@ -1,9 +1,11 @@
 # app/products_admin/routes.py
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from cloudinary.uploader import upload
 from cloudinary.exceptions import Error as CloudinaryError
 from datetime import datetime
+import logging
+import time
 
 from app.extensions import db
 from app.models import Categorie, TypeProduit, Produit, ImageProduit
@@ -15,80 +17,128 @@ from app.schemas import (
     image_produit_schema
 )
 
+# Configuration du logger avec niveau INFO pour avoir tous les détails
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 products_admin_bp = Blueprint('products_admin', __name__)
+
+def log_request_start(route_name, **kwargs):
+    """Démarre le logging d'une requête"""
+    client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('HTTP_X_REAL_IP', request.remote_addr))
+    user_agent = request.headers.get('User-Agent', 'Unknown')
+    method = request.method
+    
+    # Stocker les infos dans g pour les utiliser plus tard
+    g.start_time = time.time()
+    g.client_ip = client_ip
+    g.route_name = route_name
+    
+    extra_info = " - ".join([f"{k}: {v}" for k, v in kwargs.items() if v is not None])
+    
+    logger.info(f"🚀 [{route_name}] START - {method} - IP: {client_ip} - User-Agent: {user_agent}" + 
+                (f" - {extra_info}" if extra_info else ""))
+    
+    return client_ip, user_agent
+
+def log_request_end(status_code, message="", **kwargs):
+    """Termine le logging d'une requête"""
+    if not hasattr(g, 'start_time'):
+        return
+        
+    duration = round((time.time() - g.start_time) * 1000, 2)
+    route_name = getattr(g, 'route_name', 'UNKNOWN')
+    client_ip = getattr(g, 'client_ip', 'Unknown')
+    
+    status_emoji = "✅" if 200 <= status_code < 300 else "⚠️" if 400 <= status_code < 500 else "❌"
+    
+    extra_info = " - ".join([f"{k}: {v}" for k, v in kwargs.items() if v is not None])
+    
+    logger.info(f"{status_emoji} [{route_name}] END - Status: {status_code} - Duration: {duration}ms - IP: {client_ip}" +
+                (f" - {message}" if message else "") + 
+                (f" - {extra_info}" if extra_info else ""))
+
+def log_action(action, **kwargs):
+    """Log une action spécifique pendant la requête"""
+    route_name = getattr(g, 'route_name', 'UNKNOWN')
+    client_ip = getattr(g, 'client_ip', 'Unknown')
+    
+    extra_info = " - ".join([f"{k}: {v}" for k, v in kwargs.items() if v is not None])
+    
+    logger.info(f"🔄 [{route_name}] {action} - IP: {client_ip}" + 
+                (f" - {extra_info}" if extra_info else ""))
+
+def log_error(error_msg, **kwargs):
+    """Log une erreur pendant la requête"""
+    route_name = getattr(g, 'route_name', 'UNKNOWN')
+    client_ip = getattr(g, 'client_ip', 'Unknown')
+    
+    extra_info = " - ".join([f"{k}: {v}" for k, v in kwargs.items() if v is not None])
+    
+    logger.error(f"❌ [{route_name}] ERROR - {error_msg} - IP: {client_ip}" + 
+                 (f" - {extra_info}" if extra_info else ""))
 
 # --- GESTION DES CATEGORIES ---
 
 @products_admin_bp.route('/categories', methods=['POST'])
 @admin_required()
 def create_categorie():
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "CREATE_CATEGORIE"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("CREATE_CATEGORIE")
     
     try:
         data = request.get_json()
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📥 Données reçues: {list(data.keys()) if data else 'None'}")
+        log_action("Data received", fields=list(data.keys()) if data else None)
         
         if not data:
-            print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ⚠️ ÉCHEC - Aucune donnée JSON - IP: {client_ip}")
+            log_error("No JSON data provided")
+            log_request_end(400, "Missing JSON data")
             return jsonify({"error": "Données JSON requises"}), 400
         
         nom_categorie = data.get('nom', 'Non spécifié')
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📂 Création catégorie: {nom_categorie}")
+        log_action("Creating category", name=nom_categorie)
         
         nouvelle_categorie = categorie_schema.load(data, session=db.session)
         db.session.add(nouvelle_categorie)
         db.session.commit()
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Catégorie créée: {nouvelle_categorie.nom} - ID: {nouvelle_categorie.id} - IP: {client_ip}")
+        log_action("Category created successfully", id=nouvelle_categorie.id, name=nouvelle_categorie.nom)
+        log_request_end(201, "Category created", category_id=nouvelle_categorie.id, name=nouvelle_categorie.nom)
         return jsonify(categorie_schema.dump(nouvelle_categorie)), 201
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - IP: {client_ip} - {str(e)}")
         db.session.rollback()
+        log_error(f"Exception during category creation: {str(e)}")
+        log_request_end(400, "Creation failed")
         return jsonify({"error": str(e)}), 400
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - IP: {client_ip}")
 
 @products_admin_bp.route('/categories', methods=['GET'])
 @admin_required()
 def get_categories():
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "GET_CATEGORIES"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("GET_CATEGORIES")
     
     try:
         categories = Categorie.query.all()
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📊 {len(categories)} catégories trouvées")
+        log_action("Categories retrieved", count=len(categories))
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Liste des catégories récupérée - IP: {client_ip}")
+        log_request_end(200, "Categories list retrieved", count=len(categories))
         return jsonify(categories_schema.dump(categories)), 200
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - IP: {client_ip} - {str(e)}")
+        log_error(f"Exception during categories retrieval: {str(e)}")
+        log_request_end(500, "Retrieval failed")
         return jsonify({"error": "Erreur lors de la récupération des catégories"}), 500
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - IP: {client_ip}")
 
 @products_admin_bp.route('/categories/<int:id>', methods=['PUT'])
 @admin_required()
 def update_categorie(id):
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "UPDATE_CATEGORIE"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - Catégorie ID: {id} - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("UPDATE_CATEGORIE", category_id=id)
     
     try:
         categorie = Categorie.query.get_or_404(id)
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📂 Catégorie trouvée: {categorie.nom}")
+        log_action("Category found", current_name=categorie.nom)
         
         data = request.get_json()
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📥 Données de mise à jour: {list(data.keys()) if data else 'None'}")
+        log_action("Update data received", fields=list(data.keys()) if data else None)
         
         ancien_nom = categorie.nom
         categorie.nom = data.get('nom', categorie.nom)
@@ -97,90 +147,78 @@ def update_categorie(id):
         
         db.session.commit()
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Catégorie mise à jour: {ancien_nom} → {categorie.nom} - ID: {id} - IP: {client_ip}")
+        log_action("Category updated successfully", old_name=ancien_nom, new_name=categorie.nom)
+        log_request_end(200, "Category updated", category_id=id, old_name=ancien_nom, new_name=categorie.nom)
         return jsonify(categorie_schema.dump(categorie)), 200
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - ID: {id} - IP: {client_ip} - {str(e)}")
         db.session.rollback()
+        log_error(f"Exception during category update: {str(e)}", category_id=id)
+        log_request_end(400, "Update failed", category_id=id)
         return jsonify({"error": str(e)}), 400
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - ID: {id} - IP: {client_ip}")
 
 # --- GESTION DES TYPES DE PRODUITS ---
 
 @products_admin_bp.route('/product-types', methods=['POST'])
 @admin_required()
 def create_type_produit():
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "CREATE_TYPE_PRODUIT"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("CREATE_TYPE_PRODUIT")
     
     try:
         data = request.get_json()
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📥 Données reçues: {list(data.keys()) if data else 'None'}")
+        log_action("Data received", fields=list(data.keys()) if data else None)
         
         if not data:
-            print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ⚠️ ÉCHEC - Aucune donnée JSON - IP: {client_ip}")
+            log_error("No JSON data provided")
+            log_request_end(400, "Missing JSON data")
             return jsonify({"error": "Données JSON requises"}), 400
         
         nom_type = data.get('nom', 'Non spécifié')
         category_id = data.get('category_id')
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏷️ Création type produit: {nom_type} - Catégorie ID: {category_id}")
+        log_action("Creating product type", name=nom_type, category_id=category_id)
         
         nouveau_type = type_produit_schema.load(data, session=db.session)
         db.session.add(nouveau_type)
         db.session.commit()
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Type produit créé: {nouveau_type.nom} - ID: {nouveau_type.id} - IP: {client_ip}")
+        log_action("Product type created successfully", id=nouveau_type.id, name=nouveau_type.nom)
+        log_request_end(201, "Product type created", type_id=nouveau_type.id, name=nouveau_type.nom)
         return jsonify(type_produit_schema.dump(nouveau_type)), 201
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - IP: {client_ip} - {str(e)}")
         db.session.rollback()
+        log_error(f"Exception during product type creation: {str(e)}")
+        log_request_end(400, "Creation failed")
         return jsonify({"error": str(e)}), 400
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - IP: {client_ip}")
 
 @products_admin_bp.route('/product-types', methods=['GET'])
 @admin_required()
 def get_types_produits():
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "GET_TYPES_PRODUITS"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("GET_TYPES_PRODUITS")
     
     try:
         types = TypeProduit.query.all()
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📊 {len(types)} types de produits trouvés")
+        log_action("Product types retrieved", count=len(types))
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Liste des types récupérée - IP: {client_ip}")
+        log_request_end(200, "Product types list retrieved", count=len(types))
         return jsonify(types_produits_schema.dump(types)), 200
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - IP: {client_ip} - {str(e)}")
+        log_error(f"Exception during product types retrieval: {str(e)}")
+        log_request_end(500, "Retrieval failed")
         return jsonify({"error": "Erreur lors de la récupération des types de produits"}), 500
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - IP: {client_ip}")
 
 @products_admin_bp.route('/product-types/<int:id>', methods=['PUT'])
 @admin_required()
 def update_type_produit(id):
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "UPDATE_TYPE_PRODUIT"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - Type ID: {id} - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("UPDATE_TYPE_PRODUIT", type_id=id)
     
     try:
         type_produit = TypeProduit.query.get_or_404(id)
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏷️ Type trouvé: {type_produit.nom}")
+        log_action("Product type found", current_name=type_produit.nom)
         
         data = request.get_json()
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📥 Données de mise à jour: {list(data.keys()) if data else 'None'}")
+        log_action("Update data received", fields=list(data.keys()) if data else None)
         
         ancien_nom = type_produit.nom
         type_produit.nom = data.get('nom', type_produit.nom)
@@ -190,112 +228,95 @@ def update_type_produit(id):
         
         db.session.commit()
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Type mis à jour: {ancien_nom} → {type_produit.nom} - ID: {id} - IP: {client_ip}")
+        log_action("Product type updated successfully", old_name=ancien_nom, new_name=type_produit.nom)
+        log_request_end(200, "Product type updated", type_id=id, old_name=ancien_nom, new_name=type_produit.nom)
         return jsonify(type_produit_schema.dump(type_produit)), 200
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - ID: {id} - IP: {client_ip} - {str(e)}")
         db.session.rollback()
+        log_error(f"Exception during product type update: {str(e)}", type_id=id)
+        log_request_end(400, "Update failed", type_id=id)
         return jsonify({"error": str(e)}), 400
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - ID: {id} - IP: {client_ip}")
 
 # --- GESTION DES PRODUITS ---
 
 @products_admin_bp.route('/products', methods=['POST'])
 @admin_required()
 def create_produit():
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "CREATE_PRODUIT"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("CREATE_PRODUIT")
     
     try:
         data = request.get_json()
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📥 Données reçues: {list(data.keys()) if data else 'None'}")
+        log_action("Data received", fields=list(data.keys()) if data else None)
         
         if not data:
-            print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ⚠️ ÉCHEC - Aucune donnée JSON - IP: {client_ip}")
+            log_error("No JSON data provided")
+            log_request_end(400, "Missing JSON data")
             return jsonify({"error": "Données JSON requises"}), 400
         
         nom_produit = data.get('nom', 'Non spécifié')
         prix = data.get('prix', 0)
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🛍️ Création produit: {nom_produit} - Prix: {prix}")
+        log_action("Creating product", name=nom_produit, price=prix)
         
         nouveau_produit = produit_schema.load(data, session=db.session)
         db.session.add(nouveau_produit)
         db.session.commit()
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Produit créé: {nouveau_produit.nom} - ID: {nouveau_produit.id} - IP: {client_ip}")
+        log_action("Product created successfully", id=nouveau_produit.id, name=nouveau_produit.nom)
+        log_request_end(201, "Product created", product_id=nouveau_produit.id, name=nouveau_produit.nom)
         return jsonify(produit_schema.dump(nouveau_produit)), 201
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - IP: {client_ip} - {str(e)}")
         db.session.rollback()
+        log_error(f"Exception during product creation: {str(e)}")
+        log_request_end(400, "Creation failed")
         return jsonify({"error": str(e)}), 400
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - IP: {client_ip}")
 
 @products_admin_bp.route('/products', methods=['GET'])
 @admin_required()
 def get_produits():
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "GET_PRODUITS"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("GET_PRODUITS")
     
     try:
         produits = Produit.query.order_by(Produit.id.desc()).all()
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📊 {len(produits)} produits trouvés")
+        log_action("Products retrieved", count=len(produits))
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Liste des produits récupérée - IP: {client_ip}")
+        log_request_end(200, "Products list retrieved", count=len(produits))
         return jsonify(produits_schema.dump(produits)), 200
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - IP: {client_ip} - {str(e)}")
+        log_error(f"Exception during products retrieval: {str(e)}")
+        log_request_end(500, "Retrieval failed")
         return jsonify({"error": "Erreur lors de la récupération des produits"}), 500
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - IP: {client_ip}")
 
 @products_admin_bp.route('/products/<int:id>', methods=['GET'])
 @admin_required()
 def get_produit_detail(id):
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "GET_PRODUIT_DETAIL"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - Produit ID: {id} - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("GET_PRODUIT_DETAIL", product_id=id)
     
     try:
         produit = Produit.query.get_or_404(id)
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🛍️ Produit trouvé: {produit.nom}")
+        log_action("Product found", name=produit.nom)
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Détails produit récupérés - ID: {id} - IP: {client_ip}")
+        log_request_end(200, "Product details retrieved", product_id=id, name=produit.nom)
         return jsonify(produit_schema.dump(produit)), 200
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - ID: {id} - IP: {client_ip} - {str(e)}")
+        log_error(f"Exception during product detail retrieval: {str(e)}", product_id=id)
+        log_request_end(404, "Product not found", product_id=id)
         return jsonify({"error": "Produit non trouvé"}), 404
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - ID: {id} - IP: {client_ip}")
 
 @products_admin_bp.route('/products/<int:id>', methods=['PUT'])
 @admin_required()
 def update_produit(id):
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "UPDATE_PRODUIT"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - Produit ID: {id} - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("UPDATE_PRODUIT", product_id=id)
     
     try:
         produit = Produit.query.get_or_404(id)
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🛍️ Produit trouvé: {produit.nom}")
+        log_action("Product found", current_name=produit.nom)
         
         data = request.get_json()
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📥 Données de mise à jour: {list(data.keys()) if data else 'None'}")
+        log_action("Update data received", fields=list(data.keys()) if data else None)
         
         ancien_nom = produit.nom
         champs_modifies = []
@@ -308,45 +329,42 @@ def update_produit(id):
                 if ancienne_valeur != value:
                     champs_modifies.append(f"{key}: {ancienne_valeur} → {value}")
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🔄 Champs modifiés: {', '.join(champs_modifies) if champs_modifies else 'Aucun'}")
+        log_action("Fields modified", changes=", ".join(champs_modifies) if champs_modifies else "None")
         
         db.session.commit()
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Produit mis à jour: {ancien_nom} → {produit.nom} - ID: {id} - IP: {client_ip}")
+        log_action("Product updated successfully", old_name=ancien_nom, new_name=produit.nom)
+        log_request_end(200, "Product updated", product_id=id, changes_count=len(champs_modifies))
         return jsonify(produit_schema.dump(produit)), 200
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - ID: {id} - IP: {client_ip} - {str(e)}")
         db.session.rollback()
+        log_error(f"Exception during product update: {str(e)}", product_id=id)
+        log_request_end(400, "Update failed", product_id=id)
         return jsonify({"error": str(e)}), 400
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - ID: {id} - IP: {client_ip}")
 
 # --- GESTION DES IMAGES DE PRODUITS ---
 
 @products_admin_bp.route('/products/<int:id>/images', methods=['POST'])
 @admin_required()
 def upload_product_image(id):
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "UPLOAD_PRODUCT_IMAGE"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - Produit ID: {id} - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("UPLOAD_PRODUCT_IMAGE", product_id=id)
     
     try:
         produit = Produit.query.get_or_404(id)
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🛍️ Produit trouvé: {produit.nom}")
+        log_action("Product found", name=produit.nom)
         
         if 'image' not in request.files:
-            print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ⚠️ ÉCHEC - Aucun fichier image - IP: {client_ip}")
+            log_error("No image file provided")
+            log_request_end(400, "Missing image file", product_id=id)
             return jsonify({"error": "Aucun fichier image n'a été envoyé"}), 400
             
         file_to_upload = request.files['image']
         filename = file_to_upload.filename
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📁 Fichier reçu: {filename}")
+        log_action("Image file received", filename=filename)
         
         try:
-            print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ☁️ Upload vers Cloudinary en cours...")
+            log_action("Starting Cloudinary upload", filename=filename)
             # Envoi de l'image à Cloudinary
             upload_result = upload(
                 file_to_upload,
@@ -355,7 +373,7 @@ def upload_product_image(id):
             )
             
             cloudinary_url = upload_result['secure_url']
-            print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ Upload Cloudinary réussi: {cloudinary_url}")
+            log_action("Cloudinary upload successful", url=cloudinary_url)
             
             # Créer l'entrée dans la base de données
             nouvelle_image = ImageProduit(
@@ -368,47 +386,48 @@ def upload_product_image(id):
             images_existantes = len(produit.images)
             if images_existantes == 0:
                 nouvelle_image.est_principale = True
-                print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🌟 Première image - Définie comme principale")
+                log_action("First image - set as primary", existing_images=images_existantes)
             else:
-                print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📷 Image supplémentaire - {images_existantes} images existantes")
+                log_action("Additional image", existing_images=images_existantes)
 
             db.session.add(nouvelle_image)
             db.session.commit()
             
-            print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Image ajoutée: {filename} - Produit: {produit.nom} - ID: {nouvelle_image.id} - IP: {client_ip}")
+            log_action("Image saved to database", image_id=nouvelle_image.id)
+            log_request_end(201, "Image uploaded successfully", 
+                          product_id=id, image_id=nouvelle_image.id, filename=filename)
             return jsonify(image_produit_schema.dump(nouvelle_image)), 201
 
         except CloudinaryError as e:
-            print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR CLOUDINARY - IP: {client_ip} - {str(e)}")
+            log_error(f"Cloudinary upload error: {str(e)}", filename=filename)
+            log_request_end(500, "Cloudinary upload failed", product_id=id)
             return jsonify({"error": f"Erreur Cloudinary : {e.message}"}), 500
             
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR CRITIQUE - ID: {id} - IP: {client_ip} - {str(e)}")
         db.session.rollback()
+        log_error(f"Exception during image upload: {str(e)}", product_id=id)
+        log_request_end(500, "Upload failed", product_id=id)
         return jsonify({"error": f"Erreur interne : {str(e)}"}), 500
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - ID: {id} - IP: {client_ip}")
 
 @products_admin_bp.route('/images/<int:image_id>/set-primary', methods=['POST'])
 @admin_required()
 def set_primary_image(image_id):
-    client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-    route_name = "SET_PRIMARY_IMAGE"
-    
-    print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🚀 DÉBUT - Image ID: {image_id} - IP: {client_ip}")
+    client_ip, user_agent = log_request_start("SET_PRIMARY_IMAGE", image_id=image_id)
     
     try:
         image_a_definir = ImageProduit.query.get_or_404(image_id)
         produit_id = image_a_definir.produit_id
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 📷 Image trouvée - Produit ID: {produit_id}")
+        log_action("Image found", product_id=produit_id)
         
         # Compter les images actuelles du produit
         images_produit = ImageProduit.query.filter_by(produit_id=produit_id).all()
         ancienne_principale = next((img for img in images_produit if img.est_principale), None)
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🔄 Changement image principale - Ancienne: {ancienne_principale.id if ancienne_principale else 'Aucune'} → Nouvelle: {image_id}")
+        log_action("Changing primary image", 
+                  old_primary=ancienne_principale.id if ancienne_principale else None,
+                  new_primary=image_id,
+                  total_images=len(images_produit))
 
         # Retirer le statut "principal" de toutes les autres images de ce produit
         ImageProduit.query.filter_by(produit_id=produit_id).update({'est_principale': False})
@@ -418,13 +437,12 @@ def set_primary_image(image_id):
         
         db.session.commit()
         
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Image principale définie: ID {image_id} - Produit ID: {produit_id} - IP: {client_ip}")
+        log_action("Primary image set successfully")
+        log_request_end(200, "Primary image updated", image_id=image_id, product_id=produit_id)
         return jsonify({"message": "Image principale définie avec succès"}), 200
         
     except Exception as e:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ERREUR - Image ID: {image_id} - IP: {client_ip} - {str(e)}")
         db.session.rollback()
+        log_error(f"Exception during primary image setting: {str(e)}", image_id=image_id)
+        log_request_end(400, "Primary image update failed", image_id=image_id)
         return jsonify({"error": str(e)}), 400
-    
-    finally:
-        print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - Image ID: {image_id} - IP: {client_ip}")
