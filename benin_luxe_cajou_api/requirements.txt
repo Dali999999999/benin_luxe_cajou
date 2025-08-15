@@ -1,0 +1,12 @@
+Flask
+Flask-SQLAlchemy
+Flask-Migrate
+Flask-JWT-Extended
+Flask-Marshmallow
+marshmallow-sqlalchemy
+PyMySQL
+python-dotenv
+bcrypt
+cloudinary
+gunicorn
+Flask-Mail
