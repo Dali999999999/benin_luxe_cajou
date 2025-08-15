@@ -33,19 +33,23 @@ def log_request_headers():
 # --- GESTION DES PRODUITS (AVEC LE DIAGNOSTIC AMÉLIORÉ) ---
 
 @products_admin_bp.route('/products', methods=['GET'])
-@admin_required  # ✅ CORRIGÉ - Suppression des parenthèses
+@admin_required()
 def get_produits():
     current_app.logger.info('GET /api/admin/products - Requête reçue')
     try:
         produits = Produit.query.order_by(Produit.id.desc()).all()
         current_app.logger.info(f'{len(produits)} produits récupérés de la base de données.')
 
+        # C'est ici que l'erreur 422 se produit.
+        # Le nouveau bloc `except ValidationError` va nous dire pourquoi.
         result = produits_schema.dump(produits)
         
         current_app.logger.info('Sérialisation des produits réussie.')
         return jsonify(result), 200
 
     except ValidationError as err:
+        # --- C'EST LE BLOC LE PLUS IMPORTANT ---
+        # Il attrape l'erreur de Marshmallow et nous donne les détails.
         current_app.logger.error(f'ERREUR DE VALIDATION (Serialization) : {err.messages}')
         return jsonify({"error": "Erreur de sérialisation des données", "details": err.messages}), 422
         
@@ -53,10 +57,12 @@ def get_produits():
         current_app.logger.error(f'Exception inattendue dans get_produits : {str(e)}', exc_info=True)
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
-# --- TOUTES LES AUTRES ROUTES CORRIGÉES ---
+# --- TOUTES LES AUTRES ROUTES ---
+# (Le reste de vos routes pour POST, PUT, etc. peut rester le même pour l'instant)
+# (Je les inclus pour que le fichier soit complet et fonctionnel)
 
 @products_admin_bp.route('/categories', methods=['POST'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def create_categorie():
     data = request.get_json()
     try:
@@ -71,13 +77,13 @@ def create_categorie():
         return jsonify({"error": str(e)}), 400
 
 @products_admin_bp.route('/categories', methods=['GET'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def get_categories():
     categories = Categorie.query.all()
     return jsonify(categories_schema.dump(categories)), 200
 
 @products_admin_bp.route('/categories/<int:id>', methods=['PUT'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def update_categorie(id):
     categorie = Categorie.query.get_or_404(id)
     data = request.get_json()
@@ -89,7 +95,7 @@ def update_categorie(id):
         return jsonify(err.messages), 400
 
 @products_admin_bp.route('/product-types', methods=['POST'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def create_type_produit():
     data = request.get_json()
     try:
@@ -101,13 +107,13 @@ def create_type_produit():
         return jsonify(err.messages), 400
 
 @products_admin_bp.route('/product-types', methods=['GET'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def get_types_produits():
     types = TypeProduit.query.all()
     return jsonify(types_produits_schema.dump(types)), 200
 
 @products_admin_bp.route('/product-types/<int:id>', methods=['PUT'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def update_type_produit(id):
     type_produit = TypeProduit.query.get_or_404(id)
     data = request.get_json()
@@ -119,7 +125,7 @@ def update_type_produit(id):
         return jsonify(err.messages), 400
 
 @products_admin_bp.route('/products', methods=['POST'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def create_produit():
     data = request.get_json()
     try:
@@ -131,13 +137,13 @@ def create_produit():
         return jsonify(err.messages), 400
 
 @products_admin_bp.route('/products/<int:id>', methods=['GET'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def get_produit_detail(id):
     produit = Produit.query.get_or_404(id)
     return jsonify(produit_schema.dump(produit)), 200
 
 @products_admin_bp.route('/products/<int:id>', methods=['PUT'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def update_produit(id):
     produit = Produit.query.get_or_404(id)
     data = request.get_json()
@@ -149,7 +155,7 @@ def update_produit(id):
         return jsonify(err.messages), 400
 
 @products_admin_bp.route('/products/<int:id>/images', methods=['POST'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def upload_product_image(id):
     produit = Produit.query.get_or_404(id)
     if 'image' not in request.files:
@@ -167,7 +173,7 @@ def upload_product_image(id):
         return jsonify({"error": f"Erreur Cloudinary : {e.message}"}), 500
 
 @products_admin_bp.route('/images/<int:image_id>/set-primary', methods=['POST'])
-@admin_required  # ✅ CORRIGÉ
+@admin_required()
 def set_primary_image(image_id):
     image_a_definir = ImageProduit.query.get_or_404(image_id)
     produit_id = image_a_definir.produit_id
