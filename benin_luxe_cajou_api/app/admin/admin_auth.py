@@ -24,6 +24,10 @@ def admin_required():
                 user_id = get_jwt_identity()
                 current_app.logger.info(f"👤 User ID récupéré: {user_id}")
                 
+                # Convertir en integer si c'est une string
+                if isinstance(user_id, str):
+                    user_id = int(user_id)
+                
                 # Recherche l'utilisateur en base
                 current_app.logger.info(f"🔍 Recherche utilisateur ID: {user_id}")
                 user = Utilisateur.query.get(user_id)
