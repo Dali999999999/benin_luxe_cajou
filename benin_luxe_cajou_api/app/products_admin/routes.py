@@ -33,7 +33,7 @@ def log_request_headers():
 # --- GESTION DES PRODUITS (AVEC LE DIAGNOSTIC AMÉLIORÉ) ---
 
 @products_admin_bp.route('/products', methods=['GET'])
-@admin_required()
+@admin_required()  # REMIS EN PLACE
 def get_produits():
     current_app.logger.info('GET /api/admin/products - Requête reçue')
     try:
