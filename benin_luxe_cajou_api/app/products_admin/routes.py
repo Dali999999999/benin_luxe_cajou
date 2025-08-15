@@ -17,6 +17,19 @@ from app.schemas import (
 
 products_admin_bp = Blueprint('products_admin', __name__)
 
+# --- FONCTION DE DIAGNOSTIC ---
+@products_admin_bp.before_request
+def log_request_headers():
+    """
+    Cette fonction s'exécute AVANT chaque requête de ce blueprint,
+    y compris avant les décorateurs d'authentification.
+    """
+    auth_header = request.headers.get('Authorization')
+    current_app.logger.info(f"--- NOUVELLE REQUÊTE SUR LE BLUEPRINT ADMIN ---")
+    current_app.logger.info(f"URL: {request.url}")
+    current_app.logger.info(f"Authorization Header Reçu: {auth_header}")
+    current_app.logger.info(f"---------------------------------------------")
+
 # --- GESTION DES PRODUITS (AVEC LE DIAGNOSTIC AMÉLIORÉ) ---
 
 @products_admin_bp.route('/products', methods=['GET'])
