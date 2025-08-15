@@ -1,13 +1,43 @@
+# app/schemas.py
+
 from .extensions import ma
-from .models import Utilisateur
+from .models import Categorie, TypeProduit, Produit, ImageProduit
 
-class UtilisateurSchema(ma.SQLAlchemyAutoSchema):
+class ImageProduitSchema(ma.SQLAlchemyAutoSchema):
     class Meta:
-        model = Utilisateur
-        # Exclure les champs sensibles qui ne doivent jamais être retournés par l'API
-        exclude = ('mot_de_passe', 'token_verification')
-        load_instance = True # Permet de désérialiser en objet Utilisateur
+        model = ImageProduit
+        load_instance = True
+        include_fk = True
 
-# Initialiser les schémas pour une utilisation simple
-utilisateur_schema = UtilisateurSchema()
-utilisateurs_schema = UtilisateurSchema(many=True)
+class CategorieSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = Categorie
+        load_instance = True
+
+class TypeProduitSchema(ma.SQLAlchemyAutoSchema):
+    categorie = ma.Nested(CategorieSchema, only=("id", "nom"))
+    class Meta:
+        model = TypeProduit
+        load_instance = True
+        include_fk = True
+
+class ProduitSchema(ma.SQLAlchemyAutoSchema):
+    type_produit = ma.Nested(TypeProduitSchema, only=("id", "nom", "categorie"))
+    images = ma.Nested(ImageProduitSchema, many=True, only=("id", "url_image", "est_principale"))
+    
+    class Meta:
+        model = Produit
+        load_instance = True
+        include_fk = True
+
+# Initialisation des schémas pour usage global
+categorie_schema = CategorieSchema()
+categories_schema = CategorieSchema(many=True)
+
+type_produit_schema = TypeProduitSchema()
+types_produits_schema = TypeProduitSchema(many=True)
+
+produit_schema = ProduitSchema()
+produits_schema = ProduitSchema(many=True)
+
+image_produit_schema = ImageProduitSchema()
