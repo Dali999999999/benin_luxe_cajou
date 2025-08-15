@@ -17,74 +17,99 @@ from app.schemas import (
 
 products_admin_bp = Blueprint('products_admin', __name__)
 
-# --- FONCTION DE DIAGNOSTIC ---
-@products_admin_bp.before_request
-def log_request_headers():
-    """
-    Cette fonction s'exécute AVANT chaque requête de ce blueprint,
-    y compris avant les décorateurs d'authentification.
-    """
-    auth_header = request.headers.get('Authorization')
-    current_app.logger.info(f"--- NOUVELLE REQUÊTE SUR LE BLUEPRINT ADMIN ---")
-    current_app.logger.info(f"URL: {request.url}")
-    current_app.logger.info(f"Authorization Header Reçu: {auth_header}")
-    current_app.logger.info(f"---------------------------------------------")
-
-# --- GESTION DES PRODUITS (AVEC LE DIAGNOSTIC AMÉLIORÉ) ---
-
-@products_admin_bp.route('/products', methods=['GET'])
-@admin_required()  # REMIS EN PLACE
-def get_produits():
-    current_app.logger.info('GET /api/admin/products - Requête reçue')
-    try:
-        produits = Produit.query.order_by(Produit.id.desc()).all()
-        current_app.logger.info(f'{len(produits)} produits récupérés de la base de données.')
-        
-        # DIAGNOSTIC : Vérifions les données avant sérialisation
-        for i, produit in enumerate(produits):
-            current_app.logger.info(f'Produit {i}: ID={produit.id}, nom={produit.nom}')
-            current_app.logger.info(f'  - categorie_id={produit.categorie_id}')
-            current_app.logger.info(f'  - type_produit_id={produit.type_produit_id}')
-            current_app.logger.info(f'  - images_count={len(produit.images) if produit.images else 0}')
-            
-            # Testons la sérialisation produit par produit
-            try:
-                test_result = produit_schema.dump(produit)
-                current_app.logger.info(f'  - Sérialisation OK pour produit {produit.id}')
-            except Exception as e:
-                current_app.logger.error(f'  - ERREUR sérialisation produit {produit.id}: {str(e)}')
-                # Continuons pour voir tous les problèmes
-        
-        # Maintenant essayons la sérialisation complète
-        result = produits_schema.dump(produits)
-        
-        current_app.logger.info('Sérialisation des produits réussie.')
-        return jsonify(result), 200
-
-    except ValidationError as err:
-        current_app.logger.error(f'ERREUR DE VALIDATION (Serialization) : {err.messages}')
-        return jsonify({"error": "Erreur de sérialisation des données", "details": err.messages}), 422
-        
-    except Exception as e:
-        current_app.logger.error(f'Exception inattendue dans get_produits : {str(e)}', exc_info=True)
-        return jsonify({"error": "Erreur interne du serveur"}), 500
-
-# --- TOUTES LES AUTRES ROUTES CORRIGÉES ---
+# --- GESTION DES CATEGORIES ---
 
 @products_admin_bp.route('/categories', methods=['POST'])
 @admin_required()
 def create_categorie():
-    data = request.get_json()
+    """
+    Crée une catégorie en recevant des données de formulaire et un fichier image (multipart/form-data).
+    """
+    current_app.logger.info("POST /api/admin/categories - Début de la création.")
+    
     try:
+        # --- CORRECTION CRUCIALE : On utilise request.form au lieu de request.get_json() ---
+        data = request.form.to_dict()
+        current_app.logger.info(f"Données de formulaire reçues: {list(data.keys())}")
+
+        if 'nom' not in data:
+            current_app.logger.error("Champ 'nom' manquant.")
+            return jsonify({"error": "Le nom de la catégorie est requis"}), 400
+
+        image_url = None
+        if 'image' in request.files and request.files['image'].filename != '':
+            image_file = request.files['image']
+            current_app.logger.info(f"Fichier image reçu: {image_file.filename}. Upload en cours...")
+            try:
+                upload_result = upload(image_file, folder="benin_luxe_cajou/categories")
+                image_url = upload_result['secure_url']
+                data['image_url'] = image_url  # On ajoute l'URL aux données à sauvegarder
+                current_app.logger.info(f"Upload réussi. URL: {image_url}")
+            except CloudinaryError as e:
+                current_app.logger.error(f"Erreur Cloudinary: {str(e)}")
+                return jsonify({"error": f"Erreur lors de l'upload: {e.message}"}), 500
+        
         nouvelle_categorie = categorie_schema.load(data, session=db.session)
         db.session.add(nouvelle_categorie)
         db.session.commit()
+        
+        current_app.logger.info(f"Catégorie '{nouvelle_categorie.nom}' créée (ID: {nouvelle_categorie.id}).")
         return jsonify(categorie_schema.dump(nouvelle_categorie)), 201
+        
     except ValidationError as err:
+        current_app.logger.error(f"Erreur de validation: {err.messages}")
         return jsonify(err.messages), 400
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": str(e)}), 400
+        current_app.logger.error(f"Erreur inattendue: {str(e)}", exc_info=True)
+        return jsonify({"error": "Erreur interne du serveur"}), 500
+
+@products_admin_bp.route('/product-types', methods=['POST'])
+@admin_required()
+def create_type_produit():
+    """
+    Crée un type de produit en recevant des données de formulaire et un fichier image (multipart/form-data).
+    """
+    current_app.logger.info("POST /api/admin/product-types - Début de la création.")
+    
+    try:
+        # --- CORRECTION CRUCIALE : On utilise request.form au lieu de request.get_json() ---
+        data = request.form.to_dict()
+        current_app.logger.info(f"Données de formulaire reçues: {list(data.keys())}")
+
+        if 'nom' not in data or 'category_id' not in data:
+            current_app.logger.error("Champs 'nom' ou 'category_id' manquants.")
+            return jsonify({"error": "Le nom et l'ID de la catégorie sont requis"}), 400
+
+        image_url = None
+        if 'image' in request.files and request.files['image'].filename != '':
+            image_file = request.files['image']
+            current_app.logger.info(f"Fichier image reçu: {image_file.filename}. Upload en cours...")
+            try:
+                upload_result = upload(image_file, folder="benin_luxe_cajou/types_produits")
+                image_url = upload_result['secure_url']
+                data['image_url'] = image_url
+                current_app.logger.info(f"Upload réussi. URL: {image_url}")
+            except CloudinaryError as e:
+                current_app.logger.error(f"Erreur Cloudinary: {str(e)}")
+                return jsonify({"error": f"Erreur lors de l'upload: {e.message}"}), 500
+
+        nouveau_type = type_produit_schema.load(data, session=db.session)
+        db.session.add(nouveau_type)
+        db.session.commit()
+        
+        current_app.logger.info(f"Type de produit '{nouveau_type.nom}' créé (ID: {nouveau_type.id}).")
+        return jsonify(type_produit_schema.dump(nouveau_type)), 201
+        
+    except ValidationError as err:
+        current_app.logger.error(f"Erreur de validation: {err.messages}")
+        return jsonify(err.messages), 400
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Erreur inattendue: {str(e)}", exc_info=True)
+        return jsonify({"error": "Erreur interne du serveur"}), 500
+
+# --- LES AUTRES ROUTES SONT CORRECTES ET RESTENT INCHANGÉES ---
 
 @products_admin_bp.route('/categories', methods=['GET'])
 @admin_required()
@@ -101,18 +126,6 @@ def update_categorie(id):
         updated_categorie = categorie_schema.load(data, instance=categorie, partial=True, session=db.session)
         db.session.commit()
         return jsonify(categorie_schema.dump(updated_categorie)), 200
-    except ValidationError as err:
-        return jsonify(err.messages), 400
-
-@products_admin_bp.route('/product-types', methods=['POST'])
-@admin_required()
-def create_type_produit():
-    data = request.get_json()
-    try:
-        nouveau_type = type_produit_schema.load(data, session=db.session)
-        db.session.add(nouveau_type)
-        db.session.commit()
-        return jsonify(type_produit_schema.dump(nouveau_type)), 201
     except ValidationError as err:
         return jsonify(err.messages), 400
 
@@ -145,6 +158,12 @@ def create_produit():
         return jsonify(produit_schema.dump(nouveau_produit)), 201
     except ValidationError as err:
         return jsonify(err.messages), 400
+
+@products_admin_bp.route('/products', methods=['GET'])
+@admin_required()
+def get_produits():
+    produits = Produit.query.order_by(Produit.id.desc()).all()
+    return jsonify(produits_schema.dump(produits)), 200
 
 @products_admin_bp.route('/products/<int:id>', methods=['GET'])
 @admin_required()
