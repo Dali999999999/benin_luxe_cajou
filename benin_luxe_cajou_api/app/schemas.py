@@ -24,6 +24,7 @@ class TypeProduitSchema(ma.SQLAlchemyAutoSchema):
 class ProduitSchema(ma.SQLAlchemyAutoSchema):
     type_produit = ma.Nested(TypeProduitSchema, only=("id", "nom", "categorie"))
     images = ma.Nested(ImageProduitSchema, many=True, only=("id", "url_image", "est_principale"))
+    prix_unitaire = ma.auto_field(as_string=True)
     
     class Meta:
         model = Produit
@@ -41,3 +42,4 @@ produit_schema = ProduitSchema()
 produits_schema = ProduitSchema(many=True)
 
 image_produit_schema = ImageProduitSchema()
+
