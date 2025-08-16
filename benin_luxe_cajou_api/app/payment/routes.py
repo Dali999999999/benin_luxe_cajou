@@ -5,8 +5,11 @@ import json
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from decimal import Decimal
+import firebase_admin
+from firebase_admin import credentials, messaging
+from flask_mail import Message
 
-from app.extensions import db
+from app.extensions import db, mail
 from app.models import (
     Utilisateur, Panier, Produit, AdresseLivraison, ZoneLivraison, 
     Coupon, Commande, DetailsCommande, Paiement
@@ -14,6 +17,8 @@ from app.models import (
 from config import Config
 
 payment_bp = Blueprint('payment', __name__)
+
+# --- CLASSES ET UTILITAIRES ---
 
 class FedaPayClient:
     """Client pour l'API FedaPay"""
@@ -39,7 +44,6 @@ class FedaPayClient:
         try:
             current_app.logger.info(message)
         except RuntimeError:
-            # Si pas de contexte Flask, utiliser print pour débugger
             print(f"[INFO] {message}")
     
     def _log_error(self, message):
@@ -47,7 +51,6 @@ class FedaPayClient:
         try:
             current_app.logger.error(message)
         except RuntimeError:
-            # Si pas de contexte Flask, utiliser print pour débugger
             print(f"[ERROR] {message}")
     
     def create_transaction(self, data):
@@ -60,7 +63,6 @@ class FedaPayClient:
             response = requests.post(url, headers=self.headers, json=data, timeout=30)
             self._log_info(f"Réponse FedaPay: Status {response.status_code}")
             
-            # Log du contenu de l'erreur pour diagnostic
             if response.status_code != 200:
                 self._log_error(f"Erreur FedaPay - Status: {response.status_code}, Response: {response.text}")
             
@@ -93,30 +95,155 @@ class FedaPayClient:
             self._log_error(f"Erreur lors de la génération du token pour {transaction_id}: {str(e)}")
             raise
 
-# Variable globale pour le client (sera initialisée dans la route)
+# Variables globales
 fedapay_client = None
+firebase_initialized = False
 
-def get_fedapay_client():
-    """Récupère ou crée le client FedaPay de manière sécurisée"""
-    global fedapay_client
+def initialize_services():
+    """Initialise Firebase et FedaPay de manière sécurisée"""
+    global fedapay_client, firebase_initialized
+    
+    # Initialisation Firebase
+    if not firebase_initialized:
+        try:
+            if not firebase_admin._apps:
+                cred_json = json.loads(Config.FIREBASE_SERVICE_ACCOUNT_JSON)
+                cred = credentials.Certificate(cred_json)
+                firebase_admin.initialize_app(cred)
+                firebase_initialized = True
+                current_app.logger.info("Firebase initialisé avec succès")
+        except Exception as e:
+            current_app.logger.error(f"Erreur lors de l'initialisation de Firebase: {e}")
+    
+    # Initialisation FedaPay
     if fedapay_client is None:
         try:
             fedapay_client = FedaPayClient(
                 api_key=Config.FEDAPAY_API_KEY,
                 environment=Config.FEDAPAY_ENVIRONMENT
             )
+            current_app.logger.info("FedaPay client initialisé avec succès")
         except Exception as e:
-            current_app.logger.error(f"Impossible de configurer FedaPay: {e}")
-            return None
+            current_app.logger.error(f"Erreur lors de l'initialisation de FedaPay: {e}")
+
+def get_fedapay_client():
+    """Récupère le client FedaPay, l'initialise si nécessaire"""
+    if fedapay_client is None:
+        initialize_services()
     return fedapay_client
+
+# --- FONCTIONS UTILITAIRES DE NOTIFICATION ---
+
+def send_order_confirmation_email(order):
+    """Envoie un email de confirmation de commande au client"""
+    try:
+        client = order.client if hasattr(order, 'client') else Utilisateur.query.get(order.utilisateur_id)
+        
+        msg = Message(
+            subject=f"Confirmation de votre commande #{order.numero_commande}",
+            recipients=[client.email],
+            html=f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #2E7D32;">🌰 Benin Luxe Cajou</h2>
+                <h3 style="color: #4CAF50;">Merci pour votre achat !</h3>
+                <p>Bonjour <strong>{client.prenom}</strong>,</p>
+                <p>Nous avons bien reçu votre commande <strong>#{order.numero_commande}</strong> 
+                   d'un montant de <strong>{order.total} FCFA</strong>.</p>
+                <div style="background-color: #f5f5f5; padding: 15px; margin: 20px 0; border-radius: 5px;">
+                    <h4>Détails de la commande:</h4>
+                    <p>• Sous-total: {order.sous_total} FCFA</p>
+                    <p>• Frais de livraison: {order.frais_livraison} FCFA</p>
+                    {f'<p>• Réduction: -{order.montant_reduction} FCFA</p>' if order.montant_reduction > 0 else ''}
+                    <p><strong>Total: {order.total} FCFA</strong></p>
+                </div>
+                <p>Elle est maintenant en cours de préparation et vous serez notifié(e) lors de son expédition.</p>
+                <p style="margin-top: 30px;">Cordialement,<br>
+                   <strong>L'équipe Benin Luxe Cajou</strong></p>
+            </div>
+            """
+        )
+        mail.send(msg)
+        current_app.logger.info(f"Email de confirmation envoyé pour la commande {order.numero_commande}")
+        
+    except Exception as e:
+        current_app.logger.error(f"Erreur lors de l'envoi de l'email de confirmation pour la commande {order.id}: {e}")
+
+def send_new_order_push_notification(order):
+    """Envoie une notification push aux admins pour une nouvelle commande"""
+    try:
+        if not firebase_initialized:
+            current_app.logger.warning("Firebase non initialisé, impossible d'envoyer la notification push")
+            return
+            
+        admins = Utilisateur.query.filter_by(role='admin').all()
+        notifications_sent = 0
+        
+        for admin in admins:
+            if admin.fcm_token:
+                try:
+                    message = messaging.Message(
+                        notification=messaging.Notification(
+                            title='🎉 Nouvelle Commande !',
+                            body=f'Commande #{order.numero_commande} ({order.total} FCFA) a été payée.'
+                        ),
+                        data={
+                            'order_id': str(order.id),
+                            'order_number': order.numero_commande,
+                            'amount': str(order.total),
+                            'type': 'new_order'
+                        },
+                        token=admin.fcm_token,
+                    )
+                    
+                    response = messaging.send(message)
+                    notifications_sent += 1
+                    current_app.logger.info(f"Notification push envoyée à l'admin {admin.id} (token: {admin.fcm_token[:10]}...)")
+                    
+                except Exception as token_error:
+                    current_app.logger.error(f"Erreur lors de l'envoi de la notification à l'admin {admin.id}: {token_error}")
+        
+        current_app.logger.info(f"{notifications_sent} notifications push envoyées pour la commande {order.numero_commande}")
+        
+    except Exception as e:
+        current_app.logger.error(f"Erreur générale lors de l'envoi des notifications push pour la commande {order.id}: {e}")
+
+def process_payment_confirmation(order):
+    """Traite la confirmation d'un paiement (mise à jour + notifications)"""
+    try:
+        # 1. Mettre à jour la base de données
+        order.statut_paiement = 'paye'
+        order.statut = 'confirmee'
+        
+        # Mettre à jour le statut du paiement
+        payment = Paiement.query.filter_by(commande_id=order.id).first()
+        if payment:
+            payment.statut = 'approved'
+        
+        db.session.commit()
+        current_app.logger.info(f"Statut de la commande {order.numero_commande} mis à jour: paiement confirmé")
+        
+        # 2. Envoyer l'email de confirmation au client
+        send_order_confirmation_email(order)
+        
+        # 3. Envoyer la notification push à l'admin
+        send_new_order_push_notification(order)
+        
+        return True
+        
+    except Exception as e:
+        current_app.logger.error(f"Erreur lors du traitement de la confirmation de paiement pour la commande {order.id}: {e}")
+        db.session.rollback()
+        return False
+
+# --- ROUTES DE PAIEMENT ---
 
 @payment_bp.route('/initialize', methods=['POST'])
 @jwt_required()
 def initialize_payment():
-    """
-    Orchestre le début du processus de paiement.
-    """
-    # Initialiser le client FedaPay dans le contexte de la requête
+    """Orchestre le début du processus de paiement."""
+    
+    # Initialiser les services
+    initialize_services()
     client = get_fedapay_client()
     if not client:
         return jsonify({"msg": "Service de paiement indisponible"}), 503
@@ -216,7 +343,7 @@ def initialize_payment():
             "currency": {
                 "iso": "XOF"
             },
-            "callback_url": f"http://localhost:3000/payment-success?order_id={new_order.id}",
+            "callback_url": f"https://VOTRE_SITE_WEB_URL/payment-success?order_id={new_order.id}",
             "customer": {
                 "firstname": user.prenom,
                 "lastname": user.nom,
@@ -262,9 +389,48 @@ def initialize_payment():
         current_app.logger.error(f"Erreur lors de l'initialisation du paiement: {str(e)}", exc_info=True)
         return jsonify({"msg": "Une erreur interne est survenue"}), 500
 
+@payment_bp.route('/status/<int:order_id>', methods=['GET'])
+@jwt_required()
+def get_payment_status(order_id):
+    """
+    LE DÉCLENCHEUR : Vérifie le statut et envoie les notifications si le paiement est confirmé.
+    """
+    initialize_services()  # S'assurer que les services sont initialisés
+    
+    user_id = int(get_jwt_identity())
+    order = Commande.query.filter_by(id=order_id, utilisateur_id=user_id).first_or_404()
+    
+    # On vérifie d'abord notre BDD. Si le webhook est déjà passé, on ne fait rien de plus.
+    if order.statut_paiement == 'paye':
+        return jsonify({"payment_status": "paye"}), 200
+
+    payment = Paiement.query.filter_by(commande_id=order.id).first()
+    if payment:
+        try:
+            client = get_fedapay_client()
+            if not client:
+                return jsonify({"payment_status": order.statut_paiement}), 200
+            
+            # La source de vérité : on interroge FedaPay
+            transaction_response = client.get_transaction(payment.fedapay_transaction_id)
+            transaction_status = transaction_response['v1/transaction']['status']
+            
+            # Si le paiement est approuvé ET que nous ne l'avions pas encore enregistré...
+            if transaction_status == 'approved' and order.statut_paiement != 'paye':
+                # Traiter la confirmation de paiement
+                if process_payment_confirmation(order):
+                    current_app.logger.info(f"Paiement confirmé et notifications envoyées pour la commande {order.numero_commande}")
+                
+        except Exception as e:
+            current_app.logger.error(f"Erreur lors de la vérification du statut FedaPay pour la commande {order.id}: {str(e)}")
+    
+    return jsonify({"payment_status": order.statut_paiement}), 200
+
 @payment_bp.route('/webhook', methods=['POST'])
 def fedapay_webhook():
-    """Webhook pour recevoir les notifications de FedaPay"""
+    """Webhook pour recevoir les notifications de FedaPay - Filet de sécurité"""
+    initialize_services()  # S'assurer que les services sont initialisés
+    
     data = request.get_json()
     event_type = data.get('name')
     
@@ -273,38 +439,9 @@ def fedapay_webhook():
         transaction_id = str(transaction_data.get('id'))
         
         payment = Paiement.query.filter_by(fedapay_transaction_id=transaction_id).first()
-        if payment and payment.statut != 'approved':
-            payment.statut = 'approved'
-            payment.commande.statut_paiement = 'paye'
-            payment.commande.statut = 'confirmee'
-            db.session.commit()
-            current_app.logger.info(f"Webhook: Paiement pour commande {payment.commande.id} confirmé.")
+        if payment and payment.commande.statut_paiement != 'paye':  # On vérifie pour ne pas traiter 2 fois
+            # Traiter la confirmation de paiement
+            if process_payment_confirmation(payment.commande):
+                current_app.logger.info(f"Webhook: Paiement confirmé et notifications envoyées pour la commande {payment.commande.numero_commande}")
     
     return jsonify(success=True), 200
-
-@payment_bp.route('/status/<int:order_id>', methods=['GET'])
-@jwt_required()
-def get_payment_status(order_id):
-    """Vérifier le statut d'un paiement"""
-    client = get_fedapay_client()
-    if not client:
-        return jsonify({"msg": "Service de paiement indisponible"}), 503
-        
-    user_id = int(get_jwt_identity())
-    order = Commande.query.filter_by(id=order_id, utilisateur_id=user_id).first_or_404()
-    
-    payment = Paiement.query.filter_by(commande_id=order.id).first()
-    if payment:
-        try:
-            transaction_response = client.get_transaction(payment.fedapay_transaction_id)
-            transaction_status = transaction_response['v1/transaction']['status']
-            
-            if transaction_status == 'approved' and order.statut_paiement != 'paye':
-                order.statut_paiement = 'paye'
-                order.statut = 'confirmee'
-                payment.statut = 'approved'
-                db.session.commit()
-        except Exception as e:
-            current_app.logger.error(f"Erreur lors de la vérification du statut: {str(e)}")
-    
-    return jsonify({"payment_status": order.statut_paiement}), 200
