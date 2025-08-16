@@ -120,7 +120,7 @@ def client_verify_account():
 
         merge_guest_cart_to_user(user.id, session_id)
         
-        access_token = create_access_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id))
         return jsonify(access_token=access_token), 200
     else:
         return jsonify({"msg": "Code de vérification incorrect"}), 400
@@ -147,7 +147,7 @@ def client_login():
         
         merge_guest_cart_to_user(user.id, session_id)
         
-        access_token = create_access_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id))
         return jsonify(access_token=access_token)
     
     return jsonify({"msg": "Email ou mot de passe incorrect"}), 401
