@@ -10,3 +10,4 @@ bcrypt
 cloudinary
 gunicorn
 Flask-Mail
+Flask-Cors
