@@ -108,6 +108,19 @@ class CouponSchema(ma.SQLAlchemyAutoSchema):
     class Meta:
         model = Coupon
         load_instance = True
+
+class CommandeSchema(ma.SQLAlchemyAutoSchema):
+    """Schéma complet pour le détail d'une commande."""
+    total = ma.auto_field(as_string=True)
+    sous_total = ma.auto_field(as_string=True)
+    frais_livraison = ma.auto_field(as_string=True)
+    montant_reduction = ma.auto_field(as_string=True)
+    date_commande = ma.auto_field()
+    
+    class Meta:
+        model = Commande
+        load_instance = True
+        include_fk = True
 # -----------------------------------------------------------------------------
 # INITIALISATION DES SCHÉMAS POUR UN USAGE GLOBAL DANS L'APPLICATION
 # -----------------------------------------------------------------------------
@@ -137,6 +150,9 @@ zones_livraison_schema = ZoneLivraisonSchema(many=True)
 
 coupon_schema = CouponSchema()
 coupons_schema = CouponSchema(many=True)
+
+commande_schema = CommandeSchema()
+
 
 
 
