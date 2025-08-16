@@ -13,14 +13,10 @@ checkout_bp = Blueprint('checkout', __name__)
 @checkout_bp.route('/place-order', methods=['POST'])
 @jwt_required()
 def place_order():
-    """
-    Orchestre le processus complet de passage de commande.
-    """
     user_id = int(get_jwt_identity())
     user = Utilisateur.query.get_or_404(user_id)
     data = request.get_json()
 
-    # --- 1. Validation des données d'entrée ---
     required_fields = ['nom_destinataire', 'telephone_destinataire', 'zone_livraison_id', 'type_adresse', 'description_adresse']
     if not all(field in data for field in required_fields):
         return jsonify({"msg": "Données de livraison incomplètes"}), 400
@@ -29,14 +25,12 @@ def place_order():
     if not cart_items:
         return jsonify({"msg": "Votre panier est vide"}), 400
 
-    # --- DÉBUT DE LA TRANSACTION ---
     try:
-        # --- 2. Création et sauvegarde de l'adresse de livraison ---
+        # --- CORRECTION : 'zone_livraison_id' est retiré de la création de l'adresse ---
         new_address = AdresseLivraison(
             utilisateur_id=user.id,
             nom_destinataire=data['nom_destinataire'],
             telephone_destinataire=data['telephone_destinataire'],
-            zone_livraison_id=data['zone_livraison_id'],
             type_adresse=data['type_adresse'],
             ville=data.get('ville'),
             quartier=data.get('quartier'),
@@ -46,23 +40,20 @@ def place_order():
             longitude=data.get('longitude')
         )
         db.session.add(new_address)
-        db.session.flush() # Pour obtenir l'ID de la nouvelle adresse avant le commit
+        db.session.flush()
 
-        # --- 3. Calculs et validations côté serveur ---
         sous_total = Decimal(0)
         for item in cart_items:
-            # Validation du stock
             if item.produit.gestion_stock == 'limite' and item.quantite > item.produit.stock_disponible:
                 raise ValueError(f"Stock insuffisant pour le produit : {item.produit.nom}")
             sous_total += item.produit.prix_unitaire * item.quantite
 
-        # Frais de livraison
+        # Frais de livraison (utilisé ici, mais pas stocké dans l'adresse)
         zone = ZoneLivraison.query.get(data['zone_livraison_id'])
         if not zone or not zone.actif:
             raise ValueError("Zone de livraison invalide ou inactive")
         frais_livraison = zone.tarif_livraison
 
-        # Coupon de réduction
         montant_reduction = Decimal(0)
         coupon = None
         if data.get('coupon_code'):
@@ -73,13 +64,12 @@ def place_order():
                 
                 if coupon.type_reduction == 'pourcentage':
                     montant_reduction = (sous_total * coupon.valeur_reduction) / 100
-                else: # montant_fixe
+                else:
                     montant_reduction = coupon.valeur_reduction
         
         total = (sous_total - montant_reduction) + frais_livraison
-        total = max(total, Decimal(0)) # S'assurer que le total n'est pas négatif
+        total = max(total, Decimal(0))
 
-        # --- 4. Création de la commande principale ---
         new_order = Commande(
             utilisateur_id=user.id,
             adresse_livraison_id=new_address.id,
@@ -93,27 +83,22 @@ def place_order():
             notes_client=data.get('notes_client')
         )
         db.session.add(new_order)
-        db.session.flush() # Pour obtenir l'ID de la nouvelle commande
+        db.session.flush()
 
-        # --- 5. Création des détails de la commande et mise à jour du stock ---
         for item in cart_items:
             detail = DetailsCommande(
                 commande_id=new_order.id,
                 produit_id=item.produit_id,
                 quantite=item.quantite,
-                prix_unitaire=item.produit.prix_unitaire, # On sauvegarde le prix au moment de l'achat
+                prix_unitaire=item.produit.prix_unitaire,
                 sous_total=item.produit.prix_unitaire * item.quantite
             )
             db.session.add(detail)
             
-            # Décrémenter le stock
             if item.produit.gestion_stock == 'limite':
                 item.produit.stock_disponible -= item.quantite
 
-        # --- 6. Vider le panier de l'utilisateur ---
         Panier.query.filter_by(utilisateur_id=user.id).delete()
-
-        # --- 7. FIN DE LA TRANSACTION ---
         db.session.commit()
         
         current_app.logger.info(f"Commande {new_order.numero_commande} créée avec succès pour l'utilisateur ID {user_id}.")
@@ -127,9 +112,9 @@ def place_order():
         }), 201
 
     except ValueError as e:
-        db.session.rollback() # Annuler toutes les opérations en cas d'erreur de logique
+        db.session.rollback()
         return jsonify({"msg": str(e)}), 400
     except Exception as e:
-        db.session.rollback() # Annuler toutes les opérations en cas d'erreur inattendue
+        db.session.rollback()
         current_app.logger.error(f"Erreur lors de la création de la commande: {str(e)}", exc_info=True)
         return jsonify({"msg": "Une erreur interne est survenue"}), 500
