@@ -38,9 +38,17 @@ def create_app(config_class=Config):
     from .auth.routes import auth_bp
     from .admin.routes import admin_bp
     from .products_admin.routes import products_admin_bp
+    from .public_api.routes import public_api_bp
+    from .client_auth.routes import client_auth_bp
+    from .cart.routes import cart_bp
+
 
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(products_admin_bp, url_prefix='/api/admin')
+    app.register_blueprint(public_api_bp, url_prefix='/api')
+    app.register_blueprint(client_auth_bp, url_prefix='/auth') # Partage /auth avec l'admin mais gère d'autres routes
+    app.register_blueprint(cart_bp, url_prefix='/api/cart')
 
     return app
+
