@@ -21,68 +21,94 @@ class FedaPayClient:
     def __init__(self, api_key, environment='sandbox'):
         self.api_key = api_key
         self.environment = environment
-        # CORRECTION: URLs correctes pour FedaPay
+        # URLs correctes pour FedaPay
         if environment == 'sandbox':
             self.base_url = 'https://sandbox-api.fedapay.com'
         else:
             self.base_url = 'https://api.fedapay.com'
             
-        # CORRECTION: Format d'authentification correct
+        # Format d'authentification correct
         self.headers = {
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json',
             'User-Agent': 'FedaPay-Python-Client/1.0'
         }
-        
-        # Log pour débugger
-        current_app.logger.info(f"FedaPay Client initialisé - Environment: {environment}, Base URL: {self.base_url}")
+    
+    def _log_info(self, message):
+        """Log sécurisé qui fonctionne avec ou sans contexte Flask"""
+        try:
+            current_app.logger.info(message)
+        except RuntimeError:
+            # Si pas de contexte Flask, utiliser print pour débugger
+            print(f"[INFO] {message}")
+    
+    def _log_error(self, message):
+        """Log sécurisé qui fonctionne avec ou sans contexte Flask"""
+        try:
+            current_app.logger.error(message)
+        except RuntimeError:
+            # Si pas de contexte Flask, utiliser print pour débugger
+            print(f"[ERROR] {message}")
     
     def create_transaction(self, data):
         """Créer une transaction"""
         url = f"{self.base_url}/v1/transactions"
         
-        # Log pour débugger
-        current_app.logger.info(f"Tentative de création de transaction sur: {url}")
-        current_app.logger.info(f"Headers: {dict(self.headers)}")  # Log des headers (sans la clé API complète)
+        self._log_info(f"Tentative de création de transaction sur: {url}")
         
         try:
             response = requests.post(url, headers=self.headers, json=data, timeout=30)
-            current_app.logger.info(f"Réponse FedaPay: Status {response.status_code}")
+            self._log_info(f"Réponse FedaPay: Status {response.status_code}")
             
             # Log du contenu de l'erreur pour diagnostic
             if response.status_code != 200:
-                current_app.logger.error(f"Erreur FedaPay - Status: {response.status_code}, Response: {response.text}")
+                self._log_error(f"Erreur FedaPay - Status: {response.status_code}, Response: {response.text}")
             
             response.raise_for_status()
             return response.json()
             
         except requests.exceptions.RequestException as e:
-            current_app.logger.error(f"Erreur lors de l'appel FedaPay API: {str(e)}")
+            self._log_error(f"Erreur lors de l'appel FedaPay API: {str(e)}")
             raise
     
     def get_transaction(self, transaction_id):
         """Récupérer une transaction"""
         url = f"{self.base_url}/v1/transactions/{transaction_id}"
-        response = requests.get(url, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            self._log_error(f"Erreur lors de la récupération de transaction {transaction_id}: {str(e)}")
+            raise
     
     def generate_token(self, transaction_id):
         """Générer le token de paiement"""
         url = f"{self.base_url}/v1/transactions/{transaction_id}/token"
-        response = requests.post(url, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = requests.post(url, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            self._log_error(f"Erreur lors de la génération du token pour {transaction_id}: {str(e)}")
+            raise
 
-# Initialisation du client FedaPay
-try:
-    fedapay_client = FedaPayClient(
-        api_key=Config.FEDAPAY_API_KEY,
-        environment=Config.FEDAPAY_ENVIRONMENT
-    )
-except Exception as e:
-    current_app.logger.error(f"ERREUR CRITIQUE: Impossible de configurer FedaPay. Erreur: {e}")
-    fedapay_client = None
+# Variable globale pour le client (sera initialisée dans la route)
+fedapay_client = None
+
+def get_fedapay_client():
+    """Récupère ou crée le client FedaPay de manière sécurisée"""
+    global fedapay_client
+    if fedapay_client is None:
+        try:
+            fedapay_client = FedaPayClient(
+                api_key=Config.FEDAPAY_API_KEY,
+                environment=Config.FEDAPAY_ENVIRONMENT
+            )
+        except Exception as e:
+            current_app.logger.error(f"Impossible de configurer FedaPay: {e}")
+            return None
+    return fedapay_client
 
 @payment_bp.route('/initialize', methods=['POST'])
 @jwt_required()
@@ -90,7 +116,9 @@ def initialize_payment():
     """
     Orchestre le début du processus de paiement.
     """
-    if not fedapay_client:
+    # Initialiser le client FedaPay dans le contexte de la requête
+    client = get_fedapay_client()
+    if not client:
         return jsonify({"msg": "Service de paiement indisponible"}), 503
         
     user_id = int(get_jwt_identity())
@@ -108,6 +136,10 @@ def initialize_payment():
 
     # --- DÉBUT DE LA TRANSACTION EN BASE DE DONNÉES ---
     try:
+        # Log de debug pour vérifier la configuration
+        current_app.logger.info(f"FEDAPAY_ENVIRONMENT: {Config.FEDAPAY_ENVIRONMENT}")
+        current_app.logger.info(f"FEDAPAY_API_KEY commence par: {Config.FEDAPAY_API_KEY[:15] if Config.FEDAPAY_API_KEY else 'NONE'}...")
+
         # --- Étape 2 : Création de l'adresse et calculs des totaux ---
         new_address = AdresseLivraison(
             utilisateur_id=user.id,
@@ -177,7 +209,7 @@ def initialize_payment():
             if item.produit.gestion_stock == 'limite':
                 item.produit.stock_disponible -= item.quantite
 
-        # --- Étape 4 : Création de la transaction FedaPay (CORRIGÉE) ---
+        # --- Étape 4 : Création de la transaction FedaPay ---
         transaction_data = {
             "description": f"Paiement pour commande #{new_order.numero_commande}",
             "amount": int(total),  # Montant en centimes (XOF)
@@ -197,11 +229,11 @@ def initialize_payment():
         }
 
         # Créer la transaction
-        transaction_response = fedapay_client.create_transaction(transaction_data)
+        transaction_response = client.create_transaction(transaction_data)
         transaction_id = transaction_response['v1/transaction']['id']
         
         # Générer le token de paiement
-        token_response = fedapay_client.generate_token(transaction_id)
+        token_response = client.generate_token(transaction_id)
         payment_url = token_response['url']
 
         # --- Étape 5 : Liaison de la commande et de la transaction ---
@@ -254,7 +286,8 @@ def fedapay_webhook():
 @jwt_required()
 def get_payment_status(order_id):
     """Vérifier le statut d'un paiement"""
-    if not fedapay_client:
+    client = get_fedapay_client()
+    if not client:
         return jsonify({"msg": "Service de paiement indisponible"}), 503
         
     user_id = int(get_jwt_identity())
@@ -263,7 +296,7 @@ def get_payment_status(order_id):
     payment = Paiement.query.filter_by(commande_id=order.id).first()
     if payment:
         try:
-            transaction_response = fedapay_client.get_transaction(payment.fedapay_transaction_id)
+            transaction_response = client.get_transaction(payment.fedapay_transaction_id)
             transaction_status = transaction_response['v1/transaction']['status']
             
             if transaction_status == 'approved' and order.statut_paiement != 'paye':
