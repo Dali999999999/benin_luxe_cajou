@@ -1,20 +1,23 @@
 # app/__init__.py
 
 from flask import Flask
+from flask_cors import CORS # <<< 1. IMPORTER CORS
 import cloudinary
 from config import Config
 from .extensions import db, migrate, jwt, ma, mail
 import logging
-from logging.handlers import RotatingFileHandler
-import os
 
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+    
+    # --- 2. ACTIVER CORS POUR TOUTE L'APPLICATION ---
+    # Cette ligne est la clé. Elle dira à l'API d'ajouter les bons
+    # en-têtes pour que les navigateurs autorisent les requêtes.
+    CORS(app)
 
-    # --- CONFIGURATION DU LOGGING (LA BONNE MÉTHODE) ---
+    # Configuration du logging
     if not app.debug and not app.testing:
-        # Configuration pour logger dans les logs de Render (stdout)
         stream_handler = logging.StreamHandler()
         stream_handler.setLevel(logging.INFO)
         app.logger.addHandler(stream_handler)
@@ -42,13 +45,14 @@ def create_app(config_class=Config):
     from .client_auth.routes import client_auth_bp
     from .cart.routes import cart_bp
 
-
+    # Blueprints Admin
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(products_admin_bp, url_prefix='/api/admin')
+
+    # Blueprints Client
     app.register_blueprint(public_api_bp, url_prefix='/api')
-    app.register_blueprint(client_auth_bp, url_prefix='/auth') # Partage /auth avec l'admin mais gère d'autres routes
+    app.register_blueprint(client_auth_bp, url_prefix='/auth')
     app.register_blueprint(cart_bp, url_prefix='/api/cart')
 
     return app
-
