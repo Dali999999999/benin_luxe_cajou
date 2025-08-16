@@ -12,3 +12,4 @@ gunicorn
 Flask-Mail
 Flask-Cors
 requests>=2.28.0
+firebase-admin
