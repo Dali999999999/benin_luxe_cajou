@@ -161,4 +161,20 @@ def fedapay_webhook():
             # On peut maintenant considérer la commande comme confirmée
             payment.commande.statut = 'confirmee'
             db.session.commit()
-            current_app.logger.info(f
+            current_app.logger.info(f"Webhook: Paiement pour commande {payment.commande.id} confirmé.")
+            
+    return jsonify(success=True), 200
+
+@payment_bp.route('/status/<int:order_id>', methods=['GET'])
+@jwt_required()
+def get_payment_status(order_id):
+    """
+    Endpoint pour que le frontend puisse vérifier le statut d'une commande
+    après que l'utilisateur soit redirigé depuis FedaPay.
+    """
+    user_id = int(get_jwt_identity())
+    order = Commande.query.filter_by(id=order_id, utilisateur_id=user_id).first_or_404()
+    
+    # On renvoie simplement le statut de paiement stocké dans notre BDD,
+    # qui a été (ou sera) mis à jour par le webhook.
+    return jsonify({"payment_status": order.statut_paiement}), 200
