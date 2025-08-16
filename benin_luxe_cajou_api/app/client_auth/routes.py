@@ -1,15 +1,40 @@
 # app/client_auth/routes.py
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import create_access_token
+from flask_mail import Message
+import secrets
+
 from app.models import Utilisateur, Panier
-from app.extensions import db
+from app.extensions import db, mail
 
 client_auth_bp = Blueprint('client_auth', __name__)
 
+
+# --- FONCTIONS UTILITAIRES LOCALES À CE FICHIER ---
+
+def send_verification_email(user_email, code, subject):
+    """
+    Fonction locale pour envoyer un code de vérification par email.
+    """
+    try:
+        msg = Message(subject=subject,
+                      recipients=[user_email],
+                      html=f"""
+                      <p>Bonjour,</p>
+                      <p>Voici votre code de vérification pour Benin Luxe Cajou :</p>
+                      <h2 style='text-align: center; color: #333;'>{code}</h2>
+                      <p>Ce code est valable pour une durée limitée. Ne le partagez avec personne.</p>
+                      """)
+        mail.send(msg)
+        return True
+    except Exception as e:
+        current_app.logger.error(f"Erreur lors de l'envoi de l'email à {user_email}: {e}")
+        return False
+
 def merge_guest_cart_to_user(user_id, session_id):
     """
-    Fonction utilitaire pour fusionner le panier invité avec le panier de l'utilisateur.
+    Fonction locale pour fusionner le panier invité avec le panier de l'utilisateur.
     """
     if not session_id:
         return
@@ -24,51 +49,89 @@ def merge_guest_cart_to_user(user_id, session_id):
         if user_item:
             # Si l'utilisateur avait déjà ce produit, on additionne les quantités
             user_item.quantite += guest_item.quantite
+            # On supprime l'ancien item invité car il a été fusionné
+            db.session.delete(guest_item)
         else:
             # Sinon, on transfère l'item en changeant le propriétaire
             guest_item.session_id = None
             guest_item.utilisateur_id = user_id
     
-    # On supprime les items invités qui ont été fusionnés (ceux qui n'ont pas été transférés)
-    for item in guest_cart_items:
-        if item.session_id is not None:
-             db.session.delete(item)
-
     db.session.commit()
+
+
+# --- ROUTES D'AUTHENTIFICATION CLIENT ---
 
 @client_auth_bp.route('/register', methods=['POST'])
 def client_register():
+    """
+    Étape 1: Inscription du client. Crée un compte inactif et envoie un code.
+    """
     data = request.get_json()
-    # ... (les vérifications de champs restent les mêmes) ...
-    nom = data.get('nom')
-    prenom = data.get('prenom')
-    email = data.get('email')
-    password = data.get('password')
-    session_id = data.get('session_id') # <<< NOUVEAU
+    nom, prenom, email, password = data.get('nom'), data.get('prenom'), data.get('email'), data.get('password')
 
     if not all([nom, prenom, email, password]):
-        return jsonify({"msg": "Nom, prénom, email et mot de passe sont requis"}), 400
+        return jsonify({"msg": "Tous les champs sont requis"}), 400
     if Utilisateur.query.filter_by(email=email).first():
         return jsonify({"msg": "Un compte existe déjà avec cet email"}), 409
 
-    new_client = Utilisateur(nom=nom, prenom=prenom, email=email, role='client', email_verifie=True)
+    new_client = Utilisateur(
+        nom=nom,
+        prenom=prenom,
+        email=email,
+        role='client',
+        email_verifie=False
+    )
     new_client.set_password(password)
     
+    verification_code = str(secrets.randbelow(900000) + 100000)
+    new_client.token_verification = verification_code
+    
     db.session.add(new_client)
-    db.session.commit() # On commit pour obtenir l'ID du nouvel utilisateur
+    db.session.commit()
     
-    # --- LOGIQUE DE FUSION ---
-    merge_guest_cart_to_user(new_client.id, session_id)
-    
-    access_token = create_access_token(identity=new_client.id)
-    return jsonify(access_token=access_token), 201
+    send_verification_email(new_client.email, verification_code, "Activez votre compte Benin Luxe Cajou")
+
+    return jsonify({"msg": "Compte créé. Un code de vérification a été envoyé à votre adresse email."}), 201
+
+@client_auth_bp.route('/verify-account', methods=['POST'])
+def client_verify_account():
+    """
+    Étape 2: Vérification du compte. Active le compte, fusionne le panier et renvoie le token.
+    """
+    data = request.get_json()
+    email = data.get('email')
+    code = data.get('code')
+    session_id = data.get('session_id')
+
+    if not email or not code:
+        return jsonify({"msg": "Email et code requis"}), 400
+
+    user = Utilisateur.query.filter_by(email=email, role='client').first()
+
+    if not user:
+        return jsonify({"msg": "Utilisateur non trouvé"}), 404
+    if user.email_verifie:
+        return jsonify({"msg": "Compte déjà vérifié"}), 400
+
+    if user.token_verification == code:
+        user.email_verifie = True
+        user.token_verification = None
+        db.session.commit()
+
+        merge_guest_cart_to_user(user.id, session_id)
+        
+        access_token = create_access_token(identity=user.id)
+        return jsonify(access_token=access_token), 200
+    else:
+        return jsonify({"msg": "Code de vérification incorrect"}), 400
 
 @client_auth_bp.route('/login', methods=['POST'])
 def client_login():
+    """
+    Connexion du client. Fusionne le panier et renvoie le token.
+    """
     data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-    session_id = data.get('session_id') # <<< NOUVEAU
+    email, password, session_id = data.get('email'), data.get('password'), data.get('session_id')
 
     if not email or not password:
         return jsonify({"msg": "Email et mot de passe requis"}), 400
@@ -76,10 +139,12 @@ def client_login():
     user = Utilisateur.query.filter_by(email=email).first()
 
     if user and user.check_password(password):
+        if not user.email_verifie:
+            # On pourrait ici proposer de renvoyer un code si besoin
+            return jsonify({"msg": "Votre compte n'est pas encore vérifié. Veuillez vérifier vos emails."}), 403
         if user.statut != 'actif':
             return jsonify({"msg": "Votre compte est inactif ou suspendu."}), 403
         
-        # --- LOGIQUE DE FUSION ---
         merge_guest_cart_to_user(user.id, session_id)
         
         access_token = create_access_token(identity=user.id)
