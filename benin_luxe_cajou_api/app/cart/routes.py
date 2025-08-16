@@ -8,46 +8,53 @@ from app.schemas import paniers_schema
 
 cart_bp = Blueprint('cart', __name__)
 
-@cart_bp.route('/', methods=['GET'])
-@jwt_required()
-def get_cart():
+@cart_bp.route('/', methods=['POST'])
+def get_or_update_cart():
     """
-    Récupère le contenu complet du panier de l'utilisateur connecté.
+    Route unifiée pour gérer le panier.
+    - Si GET : Récupère le contenu du panier.
+    - Si POST : Ajoute/met à jour un produit dans le panier.
+    - Si DELETE : Supprime un produit du panier.
+    Gère à la fois les utilisateurs connectés (JWT) et les invités (session_id).
     """
-    user_id = get_jwt_identity()
-    cart_items = Panier.query.filter_by(utilisateur_id=user_id).all()
-    return jsonify(paniers_schema.dump(cart_items)), 200
-
-@cart_bp.route('/add', methods=['POST'])
-@jwt_required()
-def add_to_cart():
-    """
-    Ajoute un produit au panier ou incrémente sa quantité.
-    """
-    user_id = get_jwt_identity()
+    user_id = get_jwt_identity(optional=True)
     data = request.get_json()
-    product_id = data.get('product_id')
-    quantity = data.get('quantity', 1)
+    session_id = data.get('session_id') if not user_id else None
 
-    if not product_id:
-        return jsonify({"msg": "ID du produit manquant"}), 400
+    if not user_id and not session_id:
+        return jsonify({"msg": "Identification requise (Token JWT ou session_id)"}), 401
 
-    # Vérifier que le produit existe et est actif
-    produit = Produit.query.filter_by(id=product_id, statut='actif').first()
-    if not produit:
-        return jsonify({"msg": "Produit non trouvé ou inactif"}), 404
+    # Détermine le filtre à utiliser pour la base de données
+    filter_criteria = {'utilisateur_id': user_id} if user_id else {'session_id': session_id}
+
+    # --- LOGIQUE POUR AJOUTER/METTRE À JOUR UN PRODUIT ---
+    if request.method == 'POST':
+        product_id = data.get('product_id')
+        quantity = data.get('quantity', 1)
+
+        if not product_id or not isinstance(quantity, int):
+            return jsonify({"msg": "product_id et quantity (entier) requis"}), 400
+
+        produit = Produit.query.filter_by(id=product_id, statut='actif').first()
+        if not produit:
+            return jsonify({"msg": "Produit non trouvé ou inactif"}), 404
         
-    # Vérifier si le produit est déjà dans le panier
-    cart_item = Panier.query.filter_by(utilisateur_id=user_id, produit_id=product_id).first()
-    
-    if cart_item:
-        # Si oui, on augmente la quantité
-        cart_item.quantite += quantity
-    else:
-        # Sinon, on crée une nouvelle entrée
-        cart_item = Panier(utilisateur_id=user_id, produit_id=product_id, quantite=quantity)
-        db.session.add(cart_item)
-        
-    db.session.commit()
-    
-    return jsonify({"msg": f"'{produit.nom}' a été ajouté au panier."}), 200
+        cart_item = Panier.query.filter_by(**filter_criteria, produit_id=product_id).first()
+
+        if quantity > 0:
+            if cart_item:
+                cart_item.quantite = quantity
+            else:
+                cart_item = Panier(**filter_criteria, produit_id=product_id, quantite=quantity)
+                db.session.add(cart_item)
+            db.session.commit()
+            return jsonify({"msg": f"Panier mis à jour pour '{produit.nom}'."}), 200
+        else: # Si la quantité est 0, on supprime l'article
+            if cart_item:
+                db.session.delete(cart_item)
+                db.session.commit()
+            return jsonify({"msg": f"'{produit.nom}' a été retiré du panier."}), 200
+
+    # --- LOGIQUE POUR RÉCUPÉRER LE PANIER (implicitement GET, mais on utilise POST pour envoyer session_id) ---
+    cart_items = Panier.query.filter_by(**filter_criteria).all()
+    return jsonify(paniers_schema.dump(cart_items)), 200
