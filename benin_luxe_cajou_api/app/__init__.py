@@ -44,6 +44,7 @@ def create_app(config_class=Config):
     from .public_api.routes import public_api_bp
     from .client_auth.routes import client_auth_bp
     from .cart.routes import cart_bp
+    from .user_profile.routes import user_profile_bp 
 
     # Blueprints Admin
     app.register_blueprint(auth_bp, url_prefix='/auth')
@@ -54,5 +55,7 @@ def create_app(config_class=Config):
     app.register_blueprint(public_api_bp, url_prefix='/api')
     app.register_blueprint(client_auth_bp, url_prefix='/auth')
     app.register_blueprint(cart_bp, url_prefix='/api/cart')
+    app.register_blueprint(user_profile_bp, url_prefix='/api/profile')
 
     return app
+
