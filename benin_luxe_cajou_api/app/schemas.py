@@ -63,25 +63,33 @@ class PanierSchema(ma.SQLAlchemyAutoSchema):
         include_fk = True
 
 class UtilisateurSchema(ma.SQLAlchemyAutoSchema):
+    # <<<--- CORRECTION : Ajout des champs de date ---
+    derniere_connexion = ma.auto_field()
+    date_creation = ma.auto_field()
     class Meta:
         model = Utilisateur
-        # Exclure les champs sensibles de la réponse API
         exclude = ("mot_de_passe", "token_verification", "role")
         load_instance = True
 
 class AdresseLivraisonSchema(ma.SQLAlchemyAutoSchema):
+    # <<<--- CORRECTION : Ajout du champ de date ---
+    date_creation = ma.auto_field()
+    # On spécifie que les champs Numeric doivent être des strings
+    latitude = ma.auto_field(as_string=True)
+    longitude = ma.auto_field(as_string=True)
     class Meta:
         model = AdresseLivraison
         load_instance = True
         include_fk = True
 
 class CommandeSummarySchema(ma.SQLAlchemyAutoSchema):
-    """Un schéma simplifié pour l'historique des commandes."""
+    # <<<--- CORRECTION : Ajout du champ de date et du total ---
+    date_commande = ma.auto_field()
+    total = ma.auto_field(as_string=True)
     class Meta:
         model = Commande
         fields = ("id", "numero_commande", "statut", "total", "date_commande")
         load_instance = True
-
 # -----------------------------------------------------------------------------
 # INITIALISATION DES SCHÉMAS POUR UN USAGE GLOBAL DANS L'APPLICATION
 # -----------------------------------------------------------------------------
@@ -105,4 +113,5 @@ adresse_livraison_schema = AdresseLivraisonSchema()
 adresses_livraison_schema = AdresseLivraisonSchema(many=True)
 commande_summary_schema = CommandeSummarySchema()
 commandes_summary_schema = CommandeSummarySchema(many=True)
+
 
