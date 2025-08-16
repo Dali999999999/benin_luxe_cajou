@@ -17,6 +17,7 @@ class Utilisateur(db.Model):
     email_verifie = db.Column(db.Boolean, default=False)
     token_verification = db.Column(db.String(64))
     derniere_connexion = db.Column(db.TIMESTAMP)
+    fcm_token = db.Column(db.String(255), nullable=True)
     date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
     adresses = relationship('AdresseLivraison', backref='utilisateur', lazy=True, cascade="all, delete-orphan")
     commandes = relationship('Commande', backref='client', lazy=True)
@@ -226,4 +227,5 @@ class ZoneLivraison(db.Model):
     delai_livraison_jours = db.Column(db.Integer, default=3)
     actif = db.Column(db.Boolean, default=True)
     date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+
 
