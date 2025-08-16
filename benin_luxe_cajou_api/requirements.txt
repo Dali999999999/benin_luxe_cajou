@@ -11,4 +11,4 @@ cloudinary
 gunicorn
 Flask-Mail
 Flask-Cors
-fedapay
+requests>=2.28.0
