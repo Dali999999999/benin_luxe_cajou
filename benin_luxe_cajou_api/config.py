@@ -21,3 +21,7 @@ class Config:
     MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
 
     MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER')
+
+    FEDAPAY_API_KEY = os.environ.get('FEDAPAY_API_KEY')
+    FEDAPAY_ENVIRONMENT = os.environ.get('FEDAPAY_ENVIRONMENT')
+
