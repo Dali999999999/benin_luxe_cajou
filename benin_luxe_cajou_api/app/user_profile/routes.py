@@ -20,7 +20,8 @@ def get_profile():
     """
     Récupère les informations de base de l'utilisateur connecté.
     """
-    user_id = get_jwt_identity()
+    # On s'attend à recevoir l'ID sous forme de string, on le convertit en entier
+    user_id = int(get_jwt_identity())
     user = Utilisateur.query.get_or_404(user_id)
     return jsonify(utilisateur_schema.dump(user)), 200
 
@@ -30,7 +31,8 @@ def update_profile():
     """
     Met à jour les informations de base de l'utilisateur (nom, prénom, téléphone).
     """
-    user_id = get_jwt_identity()
+    # On s'attend à recevoir l'ID sous forme de string, on le convertit en entier
+    user_id = int(get_jwt_identity())
     user = Utilisateur.query.get_or_404(user_id)
     data = request.get_json()
 
@@ -49,7 +51,8 @@ def update_password():
     Met à jour le mot de passe de l'utilisateur.
     Nécessite l'ancien mot de passe pour des raisons de sécurité.
     """
-    user_id = get_jwt_identity()
+    # On s'attend à recevoir l'ID sous forme de string, on le convertit en entier
+    user_id = int(get_jwt_identity())
     user = Utilisateur.query.get_or_404(user_id)
     data = request.get_json()
     old_password = data.get('old_password')
@@ -74,7 +77,8 @@ def get_user_addresses():
     """
     Récupère la liste des adresses de livraison de l'utilisateur connecté.
     """
-    user_id = get_jwt_identity()
+    # On s'attend à recevoir l'ID sous forme de string, on le convertit en entier
+    user_id = int(get_jwt_identity())
     addresses = AdresseLivraison.query.filter_by(utilisateur_id=user_id).all()
     return jsonify(adresses_livraison_schema.dump(addresses)), 200
 
@@ -84,6 +88,7 @@ def get_user_orders():
     """
     Récupère l'historique des commandes de l'utilisateur connecté.
     """
-    user_id = get_jwt_identity()
+    # On s'attend à recevoir l'ID sous forme de string, on le convertit en entier
+    user_id = int(get_jwt_identity())
     orders = Commande.query.filter_by(utilisateur_id=user_id).order_by(Commande.date_commande.desc()).all()
     return jsonify(commandes_summary_schema.dump(orders)), 200
