@@ -1,9 +1,10 @@
 # app/payment/routes.py
 
+import requests
+import json
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from decimal import Decimal
-import fedapay # CORRECTION: On importe seulement le module principal
 
 from app.extensions import db
 from app.models import (
@@ -14,24 +15,57 @@ from config import Config
 
 payment_bp = Blueprint('payment', __name__)
 
-# --- CONFIGURATION DE FEDAPAY ---
+class FedaPayClient:
+    """Client pour l'API FedaPay"""
+    
+    def __init__(self, api_key, environment='sandbox'):
+        self.api_key = api_key
+        self.base_url = 'https://sandbox-api.fedapay.com' if environment == 'sandbox' else 'https://api.fedapay.com'
+        self.headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
+    
+    def create_transaction(self, data):
+        """Créer une transaction"""
+        url = f"{self.base_url}/v1/transactions"
+        response = requests.post(url, headers=self.headers, json=data)
+        response.raise_for_status()
+        return response.json()
+    
+    def get_transaction(self, transaction_id):
+        """Récupérer une transaction"""
+        url = f"{self.base_url}/v1/transactions/{transaction_id}"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json()
+    
+    def generate_token(self, transaction_id):
+        """Générer le token de paiement"""
+        url = f"{self.base_url}/v1/transactions/{transaction_id}/token"
+        response = requests.post(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json()
+
+# Initialisation du client FedaPay
 try:
-    # CORRECTION: La configuration se fait via les attributs du module
-    fedapay.api_key = Config.FEDAPAY_API_KEY
-    fedapay.environment = Config.FEDAPAY_ENVIRONMENT
+    fedapay_client = FedaPayClient(
+        api_key=Config.FEDAPAY_API_KEY,
+        environment=Config.FEDAPAY_ENVIRONMENT
+    )
 except Exception as e:
-    current_app.logger.error(f"ERREUR CRITIQUE: Impossible de configurer FedaPay. Vérifiez vos variables d'environnement. Erreur: {e}")
+    current_app.logger.error(f"ERREUR CRITIQUE: Impossible de configurer FedaPay. Erreur: {e}")
+    fedapay_client = None
 
 @payment_bp.route('/initialize', methods=['POST'])
 @jwt_required()
 def initialize_payment():
     """
     Orchestre le début du processus de paiement.
-    1. Valide les données et le panier.
-    2. Crée une commande en BDD avec le statut "en attente".
-    3. Crée une transaction FedaPay.
-    4. Lie les deux et renvoie l'URL de paiement au client.
     """
+    if not fedapay_client:
+        return jsonify({"msg": "Service de paiement indisponible"}), 503
+        
     user_id = int(get_jwt_identity())
     user = Utilisateur.query.get_or_404(user_id)
     data = request.get_json()
@@ -61,7 +95,7 @@ def initialize_payment():
             longitude=data.get('longitude')
         )
         db.session.add(new_address)
-        db.session.flush() # On obtient l'ID de la nouvelle adresse
+        db.session.flush()
 
         sous_total = Decimal(0)
         for item in cart_items:
@@ -103,7 +137,7 @@ def initialize_payment():
             notes_client=data.get('notes_client')
         )
         db.session.add(new_order)
-        db.session.flush() # On obtient l'ID et le numéro de la nouvelle commande
+        db.session.flush()
 
         for item in cart_items:
             db.session.add(DetailsCommande(
@@ -116,21 +150,37 @@ def initialize_payment():
             if item.produit.gestion_stock == 'limite':
                 item.produit.stock_disponible -= item.quantite
 
-        # --- Étape 4 : Création de la transaction FedaPay ---
-        transaction = fedapay.Transaction.create(
-            description=f"Paiement pour commande #{new_order.numero_commande}",
-            amount=int(total),
-            currency={'iso': 'XOF'},
-            customer={'firstname': user.prenom, 'lastname': user.nom, 'email': user.email},
-            callback_url=f"https://VOTRE_SITE_WEB_URL/payment-success?order_id={new_order.id}"
-        )
+        # --- Étape 4 : Création de la transaction FedaPay (CORRIGÉE) ---
+        transaction_data = {
+            "description": f"Paiement pour commande #{new_order.numero_commande}",
+            "amount": int(total),  # Montant en centimes (XOF)
+            "currency": {
+                "iso": "XOF"
+            },
+            "callback_url": f"https://VOTRE_SITE_WEB_URL/payment-success?order_id={new_order.id}",
+            "customer": {
+                "firstname": user.prenom,
+                "lastname": user.nom,
+                "email": user.email,
+                "phone_number": {
+                    "number": data['telephone_destinataire'],
+                    "country": "bj"  # Code pays pour le Bénin
+                }
+            }
+        }
 
-        payment_url = transaction.generateToken()['url']
+        # Créer la transaction
+        transaction_response = fedapay_client.create_transaction(transaction_data)
+        transaction_id = transaction_response['v1/transaction']['id']
+        
+        # Générer le token de paiement
+        token_response = fedapay_client.generate_token(transaction_id)
+        payment_url = token_response['url']
 
         # --- Étape 5 : Liaison de la commande et de la transaction ---
         db.session.add(Paiement(
             commande_id=new_order.id,
-            fedapay_transaction_id=str(transaction.id),
+            fedapay_transaction_id=str(transaction_id),
             montant=total,
             statut='pending'
         ))
@@ -138,12 +188,16 @@ def initialize_payment():
         Panier.query.filter_by(utilisateur_id=user.id).delete()
         db.session.commit()
 
-        current_app.logger.info(f"Transaction FedaPay {transaction.id} créée pour la commande {new_order.numero_commande}.")
+        current_app.logger.info(f"Transaction FedaPay {transaction_id} créée pour la commande {new_order.numero_commande}.")
         return jsonify({"payment_url": payment_url}), 201
 
     except ValueError as e:
         db.session.rollback()
         return jsonify({"msg": str(e)}), 400
+    except requests.exceptions.RequestException as e:
+        db.session.rollback()
+        current_app.logger.error(f"Erreur FedaPay API: {str(e)}")
+        return jsonify({"msg": "Erreur de communication avec le service de paiement"}), 500
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Erreur lors de l'initialisation du paiement: {str(e)}", exc_info=True)
@@ -151,11 +205,14 @@ def initialize_payment():
 
 @payment_bp.route('/webhook', methods=['POST'])
 def fedapay_webhook():
+    """Webhook pour recevoir les notifications de FedaPay"""
     data = request.get_json()
     event_type = data.get('name')
+    
     if event_type == 'transaction.approved':
         transaction_data = data.get('data')
         transaction_id = str(transaction_data.get('id'))
+        
         payment = Paiement.query.filter_by(fedapay_transaction_id=transaction_id).first()
         if payment and payment.statut != 'approved':
             payment.statut = 'approved'
@@ -163,23 +220,31 @@ def fedapay_webhook():
             payment.commande.statut = 'confirmee'
             db.session.commit()
             current_app.logger.info(f"Webhook: Paiement pour commande {payment.commande.id} confirmé.")
+    
     return jsonify(success=True), 200
 
 @payment_bp.route('/status/<int:order_id>', methods=['GET'])
 @jwt_required()
 def get_payment_status(order_id):
+    """Vérifier le statut d'un paiement"""
+    if not fedapay_client:
+        return jsonify({"msg": "Service de paiement indisponible"}), 503
+        
     user_id = int(get_jwt_identity())
     order = Commande.query.filter_by(id=order_id, utilisateur_id=user_id).first_or_404()
     
     payment = Paiement.query.filter_by(commande_id=order.id).first()
     if payment:
         try:
-            transaction = fedapay.Transaction.retrieve(int(payment.fedapay_transaction_id))
-            if transaction.status == 'approved' and order.statut_paiement != 'paye':
-                 order.statut_paiement = 'paye'
-                 order.statut = 'confirmee'
-                 payment.statut = 'approved'
-                 db.session.commit()
-        except Exception:
-            pass 
+            transaction_response = fedapay_client.get_transaction(payment.fedapay_transaction_id)
+            transaction_status = transaction_response['v1/transaction']['status']
+            
+            if transaction_status == 'approved' and order.statut_paiement != 'paye':
+                order.statut_paiement = 'paye'
+                order.statut = 'confirmee'
+                payment.statut = 'approved'
+                db.session.commit()
+        except Exception as e:
+            current_app.logger.error(f"Erreur lors de la vérification du statut: {str(e)}")
+    
     return jsonify({"payment_status": order.statut_paiement}), 200
