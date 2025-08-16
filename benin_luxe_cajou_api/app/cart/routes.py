@@ -19,7 +19,8 @@ def handle_cart():
     try:
         # --- CORRECTION : get_jwt_identity() est maintenant appelé sans argument ---
         # Il retournera l'ID si le token est valide, sinon None.
-        user_id = get_jwt_identity()
+        jwt_identity = get_jwt_identity()
+        user_id = int(jwt_identity) if jwt_identity else None
         data = request.get_json()
 
         session_id = data.get('session_id') if not user_id else None
