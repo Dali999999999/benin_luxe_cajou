@@ -1,7 +1,7 @@
 # app/public_api/routes.py
 
 from flask import Blueprint, jsonify
-from app.models import Categorie, Produit
+from app.models import Categorie, Produit, ZoneLivraison
 from app.schemas import categories_schema, produits_schema, produit_schema, zones_livraison_schema
 
 public_api_bp = Blueprint('public_api', __name__)
