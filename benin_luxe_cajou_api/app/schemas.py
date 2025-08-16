@@ -62,6 +62,26 @@ class PanierSchema(ma.SQLAlchemyAutoSchema):
         load_instance = True
         include_fk = True
 
+class UtilisateurSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = Utilisateur
+        # Exclure les champs sensibles de la réponse API
+        exclude = ("mot_de_passe", "token_verification", "role")
+        load_instance = True
+
+class AdresseLivraisonSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = AdresseLivraison
+        load_instance = True
+        include_fk = True
+
+class CommandeSummarySchema(ma.SQLAlchemyAutoSchema):
+    """Un schéma simplifié pour l'historique des commandes."""
+    class Meta:
+        model = Commande
+        fields = ("id", "numero_commande", "statut", "total", "date_commande")
+        load_instance = True
+
 # -----------------------------------------------------------------------------
 # INITIALISATION DES SCHÉMAS POUR UN USAGE GLOBAL DANS L'APPLICATION
 # -----------------------------------------------------------------------------
@@ -80,4 +100,9 @@ image_produit_schema = ImageProduitSchema()
 panier_schema = PanierSchema()
 paniers_schema = PanierSchema(many=True)
 
+utilisateur_schema = UtilisateurSchema()
+adresse_livraison_schema = AdresseLivraisonSchema()
+adresses_livraison_schema = AdresseLivraisonSchema(many=True)
+commande_summary_schema = CommandeSummarySchema()
+commandes_summary_schema = CommandeSummarySchema(many=True)
 
