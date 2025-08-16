@@ -46,7 +46,8 @@ def create_app(config_class=Config):
     from .cart.routes import cart_bp
     from .user_profile.routes import user_profile_bp
     from .site_config.routes import site_config_bp
-    from .checkout.routes import checkout_bp
+    from .payment.routes import payment_bp
+    
 
     # Blueprints Admin
     app.register_blueprint(auth_bp, url_prefix='/auth')
@@ -59,9 +60,10 @@ def create_app(config_class=Config):
     app.register_blueprint(client_auth_bp, url_prefix='/auth')
     app.register_blueprint(cart_bp, url_prefix='/api/cart')
     app.register_blueprint(user_profile_bp, url_prefix='/api/profile')
-    app.register_blueprint(checkout_bp, url_prefix='/api/checkout')
+    app.register_blueprint(payment_bp, url_prefix='/api/payment')
 
     return app
+
 
 
 
