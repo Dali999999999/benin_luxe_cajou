@@ -10,7 +10,7 @@ from app.models import (
     Utilisateur, Panier, Produit, AdresseLivraison, ZoneLivraison, 
     Coupon, Commande, DetailsCommande, Paiement
 )
-from app.config import Config
+from config import Config
 
 payment_bp = Blueprint('payment', __name__)
 
