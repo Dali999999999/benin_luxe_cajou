@@ -1,22 +1,25 @@
 # app/cart/routes.py
 
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity # On importe jwt_required
 from app.models import Panier, Produit
 from app.extensions import db
 from app.schemas import paniers_schema
 
 cart_bp = Blueprint('cart', __name__)
 
+# --- CORRECTION : On utilise le décorateur jwt_required(optional=True) ---
 @cart_bp.route('/', methods=['POST'])
+@jwt_required(optional=True) 
 def handle_cart():
     """
     Route unifiée et robuste pour gérer toutes les opérations du panier.
-    Elle distingue l'action à effectuer en fonction des données reçues.
+    Grâce à @jwt_required(optional=True), elle accepte les requêtes avec ou sans token.
     """
     try:
-        # On utilise get_jwt_identity avec optional=True pour gérer les deux cas
-        user_id = get_jwt_identity(optional=True)
+        # --- CORRECTION : get_jwt_identity() est maintenant appelé sans argument ---
+        # Il retournera l'ID si le token est valide, sinon None.
+        user_id = get_jwt_identity()
         data = request.get_json()
 
         session_id = data.get('session_id') if not user_id else None
@@ -24,11 +27,8 @@ def handle_cart():
         if not user_id and not session_id:
             return jsonify({"msg": "Identification requise (Token JWT ou session_id)"}), 401
 
-        # Détermine sur quel panier on travaille (celui de l'utilisateur ou de l'invité)
         filter_criteria = {'utilisateur_id': user_id} if user_id else {'session_id': session_id}
         
-        # --- NOUVELLE LOGIQUE DE ROUTAGE ---
-        # Si un product_id est fourni, c'est une opération de modification.
         if 'product_id' in data:
             product_id = data.get('product_id')
             quantity = data.get('quantity', 1)
@@ -50,18 +50,15 @@ def handle_cart():
                     db.session.add(cart_item)
                 db.session.commit()
                 return jsonify({"msg": f"Panier mis à jour pour '{produit.nom}'."}), 200
-            else: # Si la quantité est 0 ou moins, on supprime
+            else:
                 if cart_item:
                     db.session.delete(cart_item)
                     db.session.commit()
                 return jsonify({"msg": f"'{produit.nom}' a été retiré du panier."}), 200
-
-        # Si aucun product_id n'est fourni, c'est une demande pour récupérer le panier.
         else:
             cart_items = Panier.query.filter_by(**filter_criteria).all()
             return jsonify(paniers_schema.dump(cart_items)), 200
 
     except Exception as e:
-        # Ce bloc attrapera les erreurs inattendues et les loguera au lieu de crasher
         current_app.logger.error(f"Erreur inattendue dans la gestion du panier: {str(e)}", exc_info=True)
         return jsonify({"error": "Une erreur interne est survenue"}), 500
