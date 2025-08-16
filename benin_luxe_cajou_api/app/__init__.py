@@ -44,12 +44,14 @@ def create_app(config_class=Config):
     from .public_api.routes import public_api_bp
     from .client_auth.routes import client_auth_bp
     from .cart.routes import cart_bp
-    from .user_profile.routes import user_profile_bp 
+    from .user_profile.routes import user_profile_bp
+    from .site_config.routes import site_config_bp
 
     # Blueprints Admin
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(products_admin_bp, url_prefix='/api/admin')
+    app.register_blueprint(site_config_bp, url_prefix='/api/admin')
 
     # Blueprints Client
     app.register_blueprint(public_api_bp, url_prefix='/api')
@@ -58,4 +60,5 @@ def create_app(config_class=Config):
     app.register_blueprint(user_profile_bp, url_prefix='/api/profile')
 
     return app
+
 
