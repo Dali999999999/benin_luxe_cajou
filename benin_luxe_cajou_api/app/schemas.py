@@ -1,7 +1,7 @@
 # app/schemas.py
 
 from .extensions import ma
-from .models import Categorie, TypeProduit, Produit, ImageProduit, Panier, Utilisateur, AdresseLivraison, Commande
+from .models import Categorie, TypeProduit, Produit, ImageProduit, Panier, Utilisateur, AdresseLivraison, Commande, ZoneLivraison, Coupon
 # -----------------------------------------------------------------------------
 # DÉFINITIONS DES SCHÉMAS AVEC GESTION EXPLICITE DES TYPES COMPLEXES
 # -----------------------------------------------------------------------------
@@ -90,6 +90,25 @@ class CommandeSummarySchema(ma.SQLAlchemyAutoSchema):
         model = Commande
         fields = ("id", "numero_commande", "statut", "total", "date_commande")
         load_instance = True
+
+class ZoneLivraisonSchema(ma.SQLAlchemyAutoSchema):
+    tarif_livraison = ma.auto_field(as_string=True)
+    date_creation = ma.auto_field()
+
+    class Meta:
+        model = ZoneLivraison
+        load_instance = True
+
+class CouponSchema(ma.SQLAlchemyAutoSchema):
+    valeur_reduction = ma.auto_field(as_string=True)
+    montant_minimum_commande = ma.auto_field(as_string=True)
+    date_debut = ma.auto_field()
+    date_fin = ma.auto_field()
+    date_creation = ma.auto_field()
+
+    class Meta:
+        model = Coupon
+        load_instance = True
 # -----------------------------------------------------------------------------
 # INITIALISATION DES SCHÉMAS POUR UN USAGE GLOBAL DANS L'APPLICATION
 # -----------------------------------------------------------------------------
@@ -113,5 +132,12 @@ adresse_livraison_schema = AdresseLivraisonSchema()
 adresses_livraison_schema = AdresseLivraisonSchema(many=True)
 commande_summary_schema = CommandeSummarySchema()
 commandes_summary_schema = CommandeSummarySchema(many=True)
+
+zone_livraison_schema = ZoneLivraisonSchema()
+zones_livraison_schema = ZoneLivraisonSchema(many=True)
+
+coupon_schema = CouponSchema()
+coupons_schema = CouponSchema(many=True)
+
 
 
