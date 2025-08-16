@@ -216,7 +216,7 @@ def initialize_payment():
             "currency": {
                 "iso": "XOF"
             },
-            "callback_url": f"https://VOTRE_SITE_WEB_URL/payment-success?order_id={new_order.id}",
+            "callback_url": f"http://localhost:3000/payment-success?order_id={new_order.id}",
             "customer": {
                 "firstname": user.prenom,
                 "lastname": user.nom,
