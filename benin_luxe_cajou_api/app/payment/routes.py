@@ -20,18 +20,45 @@ class FedaPayClient:
     
     def __init__(self, api_key, environment='sandbox'):
         self.api_key = api_key
-        self.base_url = 'https://sandbox-api.fedapay.com' if environment == 'sandbox' else 'https://api.fedapay.com'
+        self.environment = environment
+        # CORRECTION: URLs correctes pour FedaPay
+        if environment == 'sandbox':
+            self.base_url = 'https://sandbox-api.fedapay.com'
+        else:
+            self.base_url = 'https://api.fedapay.com'
+            
+        # CORRECTION: Format d'authentification correct
         self.headers = {
             'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'User-Agent': 'FedaPay-Python-Client/1.0'
         }
+        
+        # Log pour débugger
+        current_app.logger.info(f"FedaPay Client initialisé - Environment: {environment}, Base URL: {self.base_url}")
     
     def create_transaction(self, data):
         """Créer une transaction"""
         url = f"{self.base_url}/v1/transactions"
-        response = requests.post(url, headers=self.headers, json=data)
-        response.raise_for_status()
-        return response.json()
+        
+        # Log pour débugger
+        current_app.logger.info(f"Tentative de création de transaction sur: {url}")
+        current_app.logger.info(f"Headers: {dict(self.headers)}")  # Log des headers (sans la clé API complète)
+        
+        try:
+            response = requests.post(url, headers=self.headers, json=data, timeout=30)
+            current_app.logger.info(f"Réponse FedaPay: Status {response.status_code}")
+            
+            # Log du contenu de l'erreur pour diagnostic
+            if response.status_code != 200:
+                current_app.logger.error(f"Erreur FedaPay - Status: {response.status_code}, Response: {response.text}")
+            
+            response.raise_for_status()
+            return response.json()
+            
+        except requests.exceptions.RequestException as e:
+            current_app.logger.error(f"Erreur lors de l'appel FedaPay API: {str(e)}")
+            raise
     
     def get_transaction(self, transaction_id):
         """Récupérer une transaction"""
