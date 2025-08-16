@@ -207,8 +207,6 @@ class Coupon(db.Model):
     limite_utilisation = db.Column(db.Integer)
     utilisations_actuelles = db.Column(db.Integer, default=0)
     statut = db.Column(db.Enum('actif', 'inactif'), default='actif')
-    # <<<--- CORRECTION : Ajout du champ de date manquant pour la cohérence
-    date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
 
 class ParametreSite(db.Model):
     __tablename__ = 'parametres_site'
@@ -228,3 +226,4 @@ class ZoneLivraison(db.Model):
     delai_livraison_jours = db.Column(db.Integer, default=3)
     actif = db.Column(db.Boolean, default=True)
     date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+
