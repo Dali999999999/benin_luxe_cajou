@@ -104,7 +104,6 @@ class CouponSchema(ma.SQLAlchemyAutoSchema):
     montant_minimum_commande = ma.auto_field(as_string=True)
     date_debut = ma.auto_field()
     date_fin = ma.auto_field()
-    date_creation = ma.auto_field()
 
     class Meta:
         model = Coupon
@@ -138,6 +137,7 @@ zones_livraison_schema = ZoneLivraisonSchema(many=True)
 
 coupon_schema = CouponSchema()
 coupons_schema = CouponSchema(many=True)
+
 
 
 
