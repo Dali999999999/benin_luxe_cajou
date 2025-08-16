@@ -1,7 +1,7 @@
 # app/schemas.py
 
 from .extensions import ma
-from .models import Categorie, TypeProduit, Produit, ImageProduit
+from .models import Categorie, TypeProduit, Produit, ImageProduit, Panier
 
 # -----------------------------------------------------------------------------
 # DÉFINITIONS DES SCHÉMAS AVEC GESTION EXPLICITE DES TYPES COMPLEXES
@@ -80,3 +80,4 @@ image_produit_schema = ImageProduitSchema()
 
 panier_schema = PanierSchema()
 paniers_schema = PanierSchema(many=True)
+
