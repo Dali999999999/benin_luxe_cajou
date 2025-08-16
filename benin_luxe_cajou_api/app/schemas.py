@@ -53,6 +53,16 @@ class ProduitSchema(ma.SQLAlchemyAutoSchema):
         load_instance = True
         include_fk = True
 
+class PanierSchema(ma.SQLAlchemyAutoSchema):
+    # On inclut les détails du produit directement dans la réponse du panier
+    # pour simplifier le travail du frontend.
+    produit = ma.Nested(ProduitSchema)
+
+    class Meta:
+        model = Panier
+        load_instance = True
+        include_fk = True
+
 # -----------------------------------------------------------------------------
 # INITIALISATION DES SCHÉMAS POUR UN USAGE GLOBAL DANS L'APPLICATION
 # -----------------------------------------------------------------------------
@@ -67,3 +77,6 @@ produit_schema = ProduitSchema()
 produits_schema = ProduitSchema(many=True)
 
 image_produit_schema = ImageProduitSchema()
+
+panier_schema = PanierSchema()
+paniers_schema = PanierSchema(many=True)
