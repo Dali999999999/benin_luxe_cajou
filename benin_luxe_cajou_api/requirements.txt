@@ -11,3 +11,4 @@ cloudinary
 gunicorn
 Flask-Mail
 Flask-Cors
+fedapay
