@@ -2,7 +2,7 @@
 
 from flask import Blueprint, jsonify
 from app.models import Categorie, Produit
-from app.schemas import categories_schema, produits_schema, produit_schema
+from app.schemas import categories_schema, produits_schema, produit_schema, zones_livraison_schema
 
 public_api_bp = Blueprint('public_api', __name__)
 
@@ -30,3 +30,11 @@ def get_public_product_detail(id):
     """
     produit = Produit.query.filter_by(id=id, statut='actif').first_or_404()
     return jsonify(produit_schema.dump(produit)), 200
+
+@public_api_bp.route('/delivery-zones', methods=['GET'])
+def get_public_delivery_zones():
+    """
+    Retourne la liste des zones de livraison ACTIVES pour la page de checkout.
+    """
+    zones = ZoneLivraison.query.filter_by(actif=True).all()
+    return jsonify(zones_livraison_schema.dump(zones)), 200
