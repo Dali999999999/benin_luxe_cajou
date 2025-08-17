@@ -106,7 +106,17 @@ class CouponSchema(ma.SQLAlchemyAutoSchema):
         model = Coupon
         load_instance = True
 
+class DetailsCommandeSchema(ma.SQLAlchemyAutoSchema):
+    # Inclure les détails du produit pour chaque ligne de la commande
+    produit = ma.Nested(ProduitSchema(only=("nom", "quantite_contenant", "type_contenant")))
+    class Meta:
+        model = DetailsCommande
+        load_instance = True
+
 class CommandeSchema(ma.SQLAlchemyAutoSchema):
+    client = ma.Nested(UtilisateurSchema(only=("prenom", "nom", "email", "telephone")))
+    adresse_livraison = ma.Nested(AdresseLivraisonSchema)
+    details = ma.Nested(DetailsCommandeSchema, many=True)
     total = ma.auto_field(as_string=True)
     sous_total = ma.auto_field(as_string=True)
     frais_livraison = ma.auto_field(as_string=True)
@@ -130,4 +140,5 @@ adresse_livraison_schema, adresses_livraison_schema = AdresseLivraisonSchema(), 
 commande_summary_schema, commandes_summary_schema = CommandeSummarySchema(), CommandeSummarySchema(many=True)
 zone_livraison_schema, zones_livraison_schema = ZoneLivraisonSchema(), ZoneLivraisonSchema(many=True)
 coupon_schema, coupons_schema = CouponSchema(), CouponSchema(many=True)
-commande_schema = CommandeSchema()
+commandes_schema = CommandeSchema(many=True, only=("id", "numero_commande", "client.prenom", "client.nom", "total", "statut", "date_commande"))
+
