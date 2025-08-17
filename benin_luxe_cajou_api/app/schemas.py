@@ -140,6 +140,8 @@ adresse_livraison_schema, adresses_livraison_schema = AdresseLivraisonSchema(), 
 commande_summary_schema, commandes_summary_schema = CommandeSummarySchema(), CommandeSummarySchema(many=True)
 zone_livraison_schema, zones_livraison_schema = ZoneLivraisonSchema(), ZoneLivraisonSchema(many=True)
 coupon_schema, coupons_schema = CouponSchema(), CouponSchema(many=True)
+commande_schema = CommandeSchema()
 commandes_schema = CommandeSchema(many=True, only=("id", "numero_commande", "client.prenom", "client.nom", "total", "statut", "date_commande"))
+
 
 
