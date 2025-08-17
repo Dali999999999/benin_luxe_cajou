@@ -47,6 +47,7 @@ def create_app(config_class=Config):
     from .user_profile.routes import user_profile_bp
     from .site_config.routes import site_config_bp
     from .payment.routes import payment_bp
+    from .orders_admin.routes import orders_admin_bp
     
 
     # Blueprints Admin
@@ -54,6 +55,7 @@ def create_app(config_class=Config):
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(products_admin_bp, url_prefix='/api/admin')
     app.register_blueprint(site_config_bp, url_prefix='/api/admin')
+    app.register_blueprint(orders_admin_bp, url_prefix='/api/admin/orders')
 
     # Blueprints Client
     app.register_blueprint(public_api_bp, url_prefix='/api')
@@ -63,6 +65,7 @@ def create_app(config_class=Config):
     app.register_blueprint(payment_bp, url_prefix='/api/payment')
 
     return app
+
 
 
 
