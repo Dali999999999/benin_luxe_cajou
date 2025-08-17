@@ -40,7 +40,12 @@ class Categorie(db.Model):
     # <<<--- CORRECTION : Ajout des champs de date manquants
     date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
     date_modification = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
-    types_produits = relationship('TypeProduit', backref='categorie', lazy=True)
+    types_produits = relationship(
+        'TypeProduit', 
+        primaryjoin="and_(Categorie.id==TypeProduit.category_id, TypeProduit.statut=='actif')", 
+        backref='categorie', 
+        lazy='joined
+    )
 
 class TypeProduit(db.Model):
     __tablename__ = 'types_produits'
@@ -227,5 +232,6 @@ class ZoneLivraison(db.Model):
     delai_livraison_jours = db.Column(db.Integer, default=3)
     actif = db.Column(db.Boolean, default=True)
     date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+
 
 
