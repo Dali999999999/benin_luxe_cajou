@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify
 from .admin_auth import admin_required
 from flask_jwt_extended import get_jwt_identity
+from app.models import Utilisateur
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -33,3 +34,4 @@ def register_device():
     admin.fcm_token = fcm_token
     db.session.commit()
     return jsonify({"msg": "Appareil enregistré avec succès pour les notifications."}), 200
+
