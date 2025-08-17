@@ -20,7 +20,7 @@ def get_dashboard_stats():
 
     })
 
-@@admin_bp.route('/register-device', methods=['POST'])
+@admin_bp.route('/register-device', methods=['POST'])
 @admin_required()
 def register_device():
     """
@@ -37,4 +37,5 @@ def register_device():
     admin.fcm_token = fcm_token
     db.session.commit()
     return jsonify({"msg": "Appareil enregistré avec succès pour les notifications."}), 200
+
 
