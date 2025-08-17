@@ -78,7 +78,7 @@ def get_clients():
     """
     clients = Utilisateur.query.filter_by(role='client').order_by(Utilisateur.date_creation.desc()).all()
     # On réutilise le schéma utilisateur, mais au pluriel
-    return jsonify(utilisateur_schema.dump(clients, many=True)), 200
+    return jsonify(utilisateurs_schema.dump(clients)), 200
 
 @orders_admin_bp.route('/clients/<int:client_id>', methods=['GET'])
 @admin_required()
