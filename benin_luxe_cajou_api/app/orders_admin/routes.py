@@ -37,24 +37,27 @@ def get_order_details(order_id):
     commande = Commande.query.get_or_404(order_id)
     return jsonify(commande_schema.dump(commande)), 200
 
+
 @orders_admin_bp.route('/<int:order_id>/status', methods=['PUT'])
 @admin_required()
 def update_order_status(order_id):
     """
-    Met à jour le statut d'une commande (ex: 'en_preparation', 'expedie', 'livree').
+    Met à jour le statut d'une commande et notifie le client par email.
     """
     admin_id = int(get_jwt_identity())
     commande = Commande.query.get_or_404(order_id)
     data = request.get_json()
     new_status = data.get('statut')
 
+    # On peut élargir les statuts valides si besoin
     valid_statuses = ['en_preparation', 'expedie', 'livree', 'annulee']
     if not new_status or new_status not in valid_statuses:
         return jsonify({"msg": "Statut invalide"}), 400
 
+    # On met à jour le statut
     commande.statut = new_status
     
-    # Enregistrer cette action dans le suivi
+    # On enregistre cette action dans le suivi
     suivi = SuiviCommande(
         commande_id=order_id,
         statut=new_status,
@@ -64,10 +67,11 @@ def update_order_status(order_id):
     db.session.add(suivi)
     db.session.commit()
     
-    # TODO (Future Amélioration): Envoyer un email/push de notification au client ici.
+    # <<< 2. APPELER LA FONCTION D'ENVOI D'EMAIL ---
+    # On le fait après le commit pour s'assurer que le statut est bien sauvegardé
+    send_status_update_email(commande)
     
     return jsonify(commande_schema.dump(commande)), 200
-
 # --- GESTION DES CLIENTS ---
 
 @orders_admin_bp.route('/clients', methods=['GET'])
