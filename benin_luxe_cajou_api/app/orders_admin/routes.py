@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models import Commande, Utilisateur, SuiviCommande
 from app.extensions import db
-from app.schemas import commandes_schema, commande_schema
+from app.schemas import commandes_schema, commande_schema, utilisateur_schema
 from app.admin.admin_auth import admin_required
 
 orders_admin_bp = Blueprint('orders_admin', __name__)
