@@ -68,6 +68,7 @@ class PanierSchema(ma.SQLAlchemyAutoSchema):
 class UtilisateurSchema(ma.SQLAlchemyAutoSchema):
     derniere_connexion = ma.auto_field()
     date_creation = ma.auto_field()
+    commandes = ma.Nested('CommandeSummarySchema', many=True, dump_only=True)
     class Meta:
         model = Utilisateur
         exclude = ("mot_de_passe", "token_verification", "role")
@@ -142,6 +143,7 @@ zone_livraison_schema, zones_livraison_schema = ZoneLivraisonSchema(), ZoneLivra
 coupon_schema, coupons_schema = CouponSchema(), CouponSchema(many=True)
 commande_schema = CommandeSchema()
 commandes_schema = CommandeSchema(many=True, only=("id", "numero_commande", "client.prenom", "client.nom", "total", "statut", "date_commande"))
+
 
 
 
