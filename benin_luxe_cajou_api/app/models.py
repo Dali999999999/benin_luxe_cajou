@@ -44,7 +44,7 @@ class Categorie(db.Model):
         'TypeProduit', 
         primaryjoin="and_(Categorie.id==TypeProduit.category_id, TypeProduit.statut=='actif')", 
         backref='categorie', 
-        lazy='joined
+        lazy='joined'
     )
 
 class TypeProduit(db.Model):
@@ -232,6 +232,7 @@ class ZoneLivraison(db.Model):
     delai_livraison_jours = db.Column(db.Integer, default=3)
     actif = db.Column(db.Boolean, default=True)
     date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+
 
 
 
