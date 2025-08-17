@@ -20,9 +20,12 @@ def get_dashboard_stats():
 
     })
 
-@admin_bp.route('/register-device', methods=['POST'])
+@@admin_bp.route('/register-device', methods=['POST'])
 @admin_required()
 def register_device():
+    """
+    Enregistre le token FCM de l'appareil de l'administrateur.
+    """
     user_id = int(get_jwt_identity())
     admin = Utilisateur.query.get_or_404(user_id)
     data = request.get_json()
