@@ -3,7 +3,7 @@
 from .extensions import ma
 from .models import (
     Categorie, TypeProduit, Produit, ImageProduit, Panier, 
-    Utilisateur, AdresseLivraison, Commande, ZoneLivraison, Coupon
+    Utilisateur, AdresseLivraison, Commande, ZoneLivraison, Coupon, DetailsCommande
 )
 
 # --- CORRECTION : On définit SimpleTypeProduitSchema AVANT CategorieSchema ---
@@ -141,4 +141,5 @@ commande_summary_schema, commandes_summary_schema = CommandeSummarySchema(), Com
 zone_livraison_schema, zones_livraison_schema = ZoneLivraisonSchema(), ZoneLivraisonSchema(many=True)
 coupon_schema, coupons_schema = CouponSchema(), CouponSchema(many=True)
 commandes_schema = CommandeSchema(many=True, only=("id", "numero_commande", "client.prenom", "client.nom", "total", "statut", "date_commande"))
+
 
