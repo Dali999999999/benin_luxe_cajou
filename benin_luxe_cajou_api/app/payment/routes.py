@@ -207,6 +207,29 @@ def send_new_order_push_notification(order):
     except Exception as e:
         current_app.logger.error(f"Erreur générale lors de l'envoi des notifications push pour la commande {order.id}: {e}")
 
+def send_low_stock_notification(product):
+    """Envoie une notification push pour un produit en stock faible."""
+    try:
+        admins = Utilisateur.query.filter_by(role='admin').all()
+        for admin in admins:
+            if admin.fcm_token:
+                message = messaging.Message(
+                    notification=messaging.Notification(
+                        title='⚠️ Alerte Stock Faible !',
+                        body=f"Le stock pour '{product.nom}' est de {product.stock_disponible}. Le seuil est de {product.stock_minimum}."
+                    ),
+                    # Vous pouvez ajouter des données supplémentaires pour le client Flutter
+                    data={
+                        "productId": str(product.id),
+                        "type": "low_stock_alert"
+                    },
+                    token=admin.fcm_token,
+                )
+                messaging.send(message)
+                current_app.logger.info(f"Notification de stock faible envoyée à l'admin {admin.id} pour le produit {product.id}")
+    except Exception as e:
+        current_app.logger.error(f"Erreur lors de l'envoi de la notification de stock faible pour le produit {product.id}: {e}")
+
 def process_payment_confirmation(order):
     """Traite la confirmation d'un paiement (mise à jour + notifications)"""
     try:
@@ -240,14 +263,9 @@ def process_payment_confirmation(order):
 @payment_bp.route('/initialize', methods=['POST'])
 @jwt_required()
 def initialize_payment():
-    """Orchestre le début du processus de paiement."""
-    
-    # Initialiser les services
-    initialize_services()
-    client = get_fedapay_client()
-    if not client:
-        return jsonify({"msg": "Service de paiement indisponible"}), 503
-        
+    """
+    Orchestre le début du processus de paiement et envoie des alertes de stock faible.
+    """
     user_id = int(get_jwt_identity())
     user = Utilisateur.query.get_or_404(user_id)
     data = request.get_json()
@@ -263,10 +281,6 @@ def initialize_payment():
 
     # --- DÉBUT DE LA TRANSACTION EN BASE DE DONNÉES ---
     try:
-        # Log de debug pour vérifier la configuration
-        current_app.logger.info(f"FEDAPAY_ENVIRONMENT: {Config.FEDAPAY_ENVIRONMENT}")
-        current_app.logger.info(f"FEDAPAY_API_KEY commence par: {Config.FEDAPAY_API_KEY[:15] if Config.FEDAPAY_API_KEY else 'NONE'}...")
-
         # --- Étape 2 : Création de l'adresse et calculs des totaux ---
         new_address = AdresseLivraison(
             utilisateur_id=user.id,
@@ -325,6 +339,8 @@ def initialize_payment():
         db.session.add(new_order)
         db.session.flush()
 
+        products_to_check_stock = [] # Liste pour stocker les produits dont le stock a été modifié
+
         for item in cart_items:
             db.session.add(DetailsCommande(
                 commande_id=new_order.id,
@@ -335,55 +351,40 @@ def initialize_payment():
             ))
             if item.produit.gestion_stock == 'limite':
                 item.produit.stock_disponible -= item.quantite
+                products_to_check_stock.append(item.produit) # On ajoute le produit à la liste de vérification
 
         # --- Étape 4 : Création de la transaction FedaPay ---
-        transaction_data = {
-            "description": f"Paiement pour commande #{new_order.numero_commande}",
-            "amount": int(total),  # Montant en centimes (XOF)
-            "currency": {
-                "iso": "XOF"
-            },
-            "callback_url": f"http://localhost:3000/payment-success?order_id={new_order.id}",
-            "customer": {
-                "firstname": user.prenom,
-                "lastname": user.nom,
-                "email": user.email,
-                "phone_number": {
-                    "number": data['telephone_destinataire'],
-                    "country": "bj"  # Code pays pour le Bénin
-                }
-            }
-        }
+        transaction = fedapay.Transaction.create(
+            description=f"Paiement pour commande #{new_order.numero_commande}",
+            amount=int(total),
+            currency={'iso': 'XOF'},
+            customer={'firstname': user.prenom, 'lastname': user.nom, 'email': user.email},
+            callback_url=f"https://VOTRE_SITE_WEB_URL/payment-success?order_id={new_order.id}"
+        )
+        payment_url = transaction.generateToken()['url']
 
-        # Créer la transaction
-        transaction_response = client.create_transaction(transaction_data)
-        transaction_id = transaction_response['v1/transaction']['id']
-        
-        # Générer le token de paiement
-        token_response = client.generate_token(transaction_id)
-        payment_url = token_response['url']
-
-        # --- Étape 5 : Liaison de la commande et de la transaction ---
         db.session.add(Paiement(
             commande_id=new_order.id,
-            fedapay_transaction_id=str(transaction_id),
+            fedapay_transaction_id=str(transaction.id),
             montant=total,
             statut='pending'
         ))
         
         Panier.query.filter_by(utilisateur_id=user.id).delete()
-        db.session.commit()
+        db.session.commit() # La transaction est validée, le stock est mis à jour en BDD
 
-        current_app.logger.info(f"Transaction FedaPay {transaction_id} créée pour la commande {new_order.numero_commande}.")
+        # --- Étape 5 (NOUVEAU) : Vérification du stock après le commit ---
+        for product in products_to_check_stock:
+            # On vérifie si le nouveau stock est passé sous le seuil critique
+            if product.stock_disponible <= product.stock_minimum:
+                send_low_stock_notification(product)
+
+        current_app.logger.info(f"Transaction FedaPay {transaction.id} créée pour la commande {new_order.numero_commande}.")
         return jsonify({"payment_url": payment_url}), 201
 
     except ValueError as e:
         db.session.rollback()
         return jsonify({"msg": str(e)}), 400
-    except requests.exceptions.RequestException as e:
-        db.session.rollback()
-        current_app.logger.error(f"Erreur FedaPay API: {str(e)}")
-        return jsonify({"msg": "Erreur de communication avec le service de paiement"}), 500
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Erreur lors de l'initialisation du paiement: {str(e)}", exc_info=True)
