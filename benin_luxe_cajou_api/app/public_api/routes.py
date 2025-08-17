@@ -1,27 +1,56 @@
 # app/public_api/routes.py
 
-from flask import Blueprint, jsonify
-from app.models import Categorie, Produit, ZoneLivraison
-from app.schemas import categories_schema, produits_schema, produit_schema, zones_livraison_schema
+from flask import Blueprint, jsonify, request
+from app.models import Categorie, Produit, TypeProduit, ZoneLivraison
+from app.schemas import (
+    categories_schema, 
+    produits_schema, 
+    produit_schema,
+    zones_livraison_schema
+)
 
 public_api_bp = Blueprint('public_api', __name__)
 
-@public_api_bp.route('/categories', methods=['GET'])
-def get_public_categories():
+
+@public_api_bp.route('/catalogue-structure', methods=['GET'])
+def get_catalogue_structure():
     """
-    Retourne la liste de toutes les catégories ACTIVES pour le site client.
+    Retourne en UN SEUL APPEL toute la hiérarchie des catégories
+    et de leurs types de produits respectifs (actifs uniquement).
+    C'est l'endpoint principal pour construire la navigation du site.
     """
+    # La requête est optimisée par la relation 'lazy="joined"' dans le modèle Categorie
     categories = Categorie.query.filter_by(statut='actif').all()
     return jsonify(categories_schema.dump(categories)), 200
+
 
 @public_api_bp.route('/products', methods=['GET'])
 def get_public_products():
     """
-    Retourne la liste de tous les produits ACTIFS pour le site client.
-    (Pourrait être amélioré plus tard avec de la pagination)
+    Retourne une liste de produits actifs.
+    Peut être filtrée par `type_id` ou `category_id` via les paramètres de l'URL.
+    Exemples:
+    - /api/products -> Tous les produits populaires
+    - /api/products?type_id=2 -> Produits du type 2
+    - /api/products?category_id=1 -> Tous les produits de la catégorie 1
     """
-    produits = Produit.query.filter_by(statut='actif').order_by(Produit.id.desc()).all()
+    query = Produit.query.filter_by(statut='actif')
+    
+    # Récupérer les paramètres de l'URL
+    type_id = request.args.get('type_id', type=int)
+    category_id = request.args.get('category_id', type=int)
+
+    if type_id:
+        # Filtrer par le type de produit exact
+        query = query.filter(Produit.type_produit_id == type_id)
+    elif category_id:
+        # Filtrer par la catégorie parente (nécessite une jointure)
+        query = query.join(TypeProduit).filter(TypeProduit.category_id == category_id)
+    
+    # Si aucun filtre, on peut retourner les plus récents ou les plus populaires
+    produits = query.order_by(Produit.id.desc()).all()
     return jsonify(produits_schema.dump(produits)), 200
+
 
 @public_api_bp.route('/products/<int:id>', methods=['GET'])
 def get_public_product_detail(id):
@@ -31,6 +60,7 @@ def get_public_product_detail(id):
     produit = Produit.query.filter_by(id=id, statut='actif').first_or_404()
     return jsonify(produit_schema.dump(produit)), 200
 
+
 @public_api_bp.route('/delivery-zones', methods=['GET'])
 def get_public_delivery_zones():
     """
@@ -38,3 +68,14 @@ def get_public_delivery_zones():
     """
     zones = ZoneLivraison.query.filter_by(actif=True).all()
     return jsonify(zones_livraison_schema.dump(zones)), 200
+
+
+# NOTE: L'ancienne route '/categories' n'est plus nécessaire pour la page d'accueil,
+# mais on la garde car elle peut être utile ailleurs et ne coûte rien.
+@public_api_bp.route('/categories', methods=['GET'])
+def get_public_categories():
+    """
+    Retourne la liste simple de toutes les catégories ACTIVES.
+    """
+    categories = Categorie.query.filter_by(statut='actif').all()
+    return jsonify(categories_schema.dump(categories)), 200
