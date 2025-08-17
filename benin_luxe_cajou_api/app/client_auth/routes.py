@@ -151,3 +151,26 @@ def client_login():
         return jsonify(access_token=access_token)
     
     return jsonify({"msg": "Email ou mot de passe incorrect"}), 401
+
+@client_auth_bp.route('/resend-verification', methods=['POST'])
+def resend_verification_code():
+    """
+    Renvoie un nouveau code de vérification à un utilisateur non encore vérifié.
+    """
+    data = request.get_json()
+    email = data.get('email')
+
+    if not email:
+        return jsonify({"msg": "Email requis"}), 400
+        
+    user = Utilisateur.query.filter_by(email=email, role='client').first()
+
+    # On ne renvoie pas d'erreur si l'utilisateur n'existe pas ou est déjà vérifié
+    # pour des raisons de sécurité (éviter l'énumération d'emails).
+    if user and not user.email_verifie:
+        verification_code = str(secrets.randbelow(900000) + 100000)
+        user.token_verification = verification_code
+        db.session.commit()
+        send_verification_email(user.email, verification_code, "Votre nouveau code de vérification")
+
+    return jsonify({"msg": "Si un compte non vérifié est associé à cet email, un nouveau code a été envoyé."}), 200
