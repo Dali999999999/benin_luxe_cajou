@@ -174,3 +174,52 @@ def resend_verification_code():
         send_verification_email(user.email, verification_code, "Votre nouveau code de vérification")
 
     return jsonify({"msg": "Si un compte non vérifié est associé à cet email, un nouveau code a été envoyé."}), 200
+
+@client_auth_bp.route('/forgot-password', methods=['POST'])
+def client_forgot_password():
+    """
+    Étape 1: Le client entre son email pour recevoir un code de réinitialisation.
+    """
+    data = request.get_json()
+    email = data.get('email')
+
+    if not email:
+        return jsonify({"msg": "Email requis"}), 400
+        
+    user = Utilisateur.query.filter_by(email=email, role='client').first()
+
+    # Pour des raisons de sécurité, on renvoie toujours un message de succès
+    # pour ne pas révéler si un email existe dans la base de données.
+    if user:
+        verification_code = str(secrets.randbelow(900000) + 100000)
+        user.token_verification = verification_code
+        db.session.commit()
+        send_verification_email(user.email, verification_code, "Réinitialisation de votre mot de passe")
+
+    return jsonify({"msg": "Si un compte est associé à cet email, un code de réinitialisation a été envoyé."}), 200
+
+
+@client_auth_bp.route('/reset-password', methods=['POST'])
+def client_reset_password():
+    """
+    Étape 2: Le client fournit le code et son nouveau mot de passe pour finaliser la réinitialisation.
+    """
+    data = request.get_json()
+    email = data.get('email')
+    code = data.get('code')
+    new_password = data.get('new_password')
+
+    if not all([email, code, new_password]):
+        return jsonify({"msg": "Email, code et nouveau mot de passe requis"}), 400
+
+    user = Utilisateur.query.filter_by(email=email, role='client').first()
+
+    # On vérifie que l'utilisateur existe et que le code est correct
+    if user and user.token_verification == code:
+        user.set_password(new_password)
+        user.token_verification = None # On nettoie le token après usage
+        db.session.commit()
+        return jsonify({"msg": "Votre mot de passe a été mis à jour avec succès. Vous pouvez maintenant vous connecter."}), 200
+    else:
+        # Message d'erreur générique pour la sécurité
+        return jsonify({"msg": "Le code de vérification est invalide ou a expiré."}), 400
