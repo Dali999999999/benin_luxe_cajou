@@ -19,6 +19,7 @@ class CategorieSchema(ma.SQLAlchemyAutoSchema):
     # Gère la conversion des objets datetime en chaînes de caractères
     date_creation = ma.auto_field()
     date_modification = ma.auto_field()
+    types_produits = ma.Nested(SimpleTypeProduitSchema, many=True)
 
     class Meta:
         model = Categorie
@@ -121,6 +122,11 @@ class CommandeSchema(ma.SQLAlchemyAutoSchema):
         model = Commande
         load_instance = True
         include_fk = True
+
+class SimpleTypeProduitSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = TypeProduit
+        fields = ("id", "nom", "image_url") # On ne prend que le nécessaire pour l'UI
 # -----------------------------------------------------------------------------
 # INITIALISATION DES SCHÉMAS POUR UN USAGE GLOBAL DANS L'APPLICATION
 # -----------------------------------------------------------------------------
@@ -152,6 +158,7 @@ coupon_schema = CouponSchema()
 coupons_schema = CouponSchema(many=True)
 
 commande_schema = CommandeSchema()
+
 
 
 
