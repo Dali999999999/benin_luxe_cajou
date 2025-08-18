@@ -283,16 +283,35 @@ def update_produit(id):
     current_app.logger.info(f"🔄 PUT /api/admin/products/{id} - Début de la mise à jour.")
     produit = Produit.query.get_or_404(id)
     current_app.logger.info(f"📂 Produit trouvé: {produit.nom}")
+    
     try:
-        # --- CORRECTION : Utilisation de request.form ---
         data = request.form.to_dict()
-        updated_produit = produit_schema.load(data, instance=produit, partial=True, session=db.session)
+        
+        # --- SOLUTION : MISE À JOUR CONTRÔLÉE ---
+        # 1. On valide les données avec Marshmallow. Si les données sont invalides
+        #    (ex: un type incorrect), Marshmallow lèvera une ValidationError.
+        #    On ne stocke pas le résultat de .load(), on l'utilise juste pour la validation.
+        produit_schema.load(data, partial=True)
+
+        # 2. Si la validation réussit, on met à jour l'objet original 'produit'
+        #    manuellement. C'est plus sûr et plus explicite.
+        for key, value in data.items():
+            if hasattr(produit, key):
+                setattr(produit, key, value)
+        
+        # 3. Maintenant, l'objet 'produit' a été modifié, et commit() va le sauvegarder.
         db.session.commit()
         current_app.logger.info(f"✅ Produit {id} mis à jour avec succès")
-        return jsonify(produit_schema.dump(updated_produit)), 200
+        return jsonify(produit_schema.dump(produit)), 200
+        
     except ValidationError as err:
         current_app.logger.error(f"❌ Erreur de validation: {err.messages}")
+        # On retourne les messages d'erreur de Marshmallow au client
         return jsonify(err.messages), 400
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"❌ Erreur inattendue: {str(e)}", exc_info=True)
+        return jsonify({"msg": "Erreur interne du serveur"}), 500
 
 # --- ROUTES DE LECTURE ET GESTION DES IMAGES DE PRODUIT (Inchangées car déjà correctes) ---
 
