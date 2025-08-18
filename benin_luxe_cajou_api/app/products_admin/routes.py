@@ -285,28 +285,30 @@ def update_produit(id):
     current_app.logger.info(f"📂 Produit trouvé: {produit.nom}")
     
     try:
-        data = request.form.to_dict()
+        # Récupérer les données JSON au lieu de form data
+        data = request.get_json()
         
-        # --- SOLUTION : MISE À JOUR CONTRÔLÉE ---
-        # 1. On valide les données avec Marshmallow. Si les données sont invalides
-        #    (ex: un type incorrect), Marshmallow lèvera une ValidationError.
-        #    On ne stocke pas le résultat de .load(), on l'utilise juste pour la validation.
+        if not data:
+            return jsonify({"msg": "Aucune donnée fournie"}), 400
+            
+        # Debug : voir ce qu'on reçoit réellement
+        current_app.logger.info(f"📊 Données reçues: {data}")
+        
+        # Validation avec Marshmallow
         produit_schema.load(data, partial=True)
-
-        # 2. Si la validation réussit, on met à jour l'objet original 'produit'
-        #    manuellement. C'est plus sûr et plus explicite.
+        
+        # Mise à jour des champs
         for key, value in data.items():
             if hasattr(produit, key):
+                current_app.logger.info(f"🔄 Mise à jour {key}: {getattr(produit, key)} -> {value}")
                 setattr(produit, key, value)
         
-        # 3. Maintenant, l'objet 'produit' a été modifié, et commit() va le sauvegarder.
         db.session.commit()
         current_app.logger.info(f"✅ Produit {id} mis à jour avec succès")
         return jsonify(produit_schema.dump(produit)), 200
         
     except ValidationError as err:
         current_app.logger.error(f"❌ Erreur de validation: {err.messages}")
-        # On retourne les messages d'erreur de Marshmallow au client
         return jsonify(err.messages), 400
     except Exception as e:
         db.session.rollback()
