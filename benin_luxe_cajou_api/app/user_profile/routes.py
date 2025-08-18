@@ -7,7 +7,8 @@ from app.extensions import db
 from app.schemas import (
     utilisateur_schema, 
     adresses_livraison_schema,
-    commandes_summary_schema
+    commandes_summary_schema,
+    commande_detail_schema
 )
 
 user_profile_bp = Blueprint('user_profile', __name__)
@@ -92,3 +93,17 @@ def get_user_orders():
     user_id = int(get_jwt_identity())
     orders = Commande.query.filter_by(utilisateur_id=user_id).order_by(Commande.date_commande.desc()).all()
     return jsonify(commandes_summary_schema.dump(orders)), 200
+
+@user_profile_bp.route('/orders/<int:order_id>', methods=['GET'])
+@jwt_required()
+def get_order_details(order_id):
+    """
+    Récupère les détails complets d'une seule commande, incluant
+    les produits, l'adresse de livraison et le suivi.
+    """
+    user_id = int(get_jwt_identity())
+    
+    # Requête sécurisée : on vérifie que la commande existe ET qu'elle appartient bien à l'utilisateur connecté.
+    order = Commande.query.filter_by(id=order_id, utilisateur_id=user_id).first_or_404()
+    
+    return jsonify(commande_detail_schema.dump(order)), 200
