@@ -1,8 +1,12 @@
+# app/admin/routes.py
+
 from flask import Blueprint, jsonify, request, current_app
 from .admin_auth import admin_required
 from flask_jwt_extended import get_jwt_identity
-from app.models import Utilisateur, Commande, Produit
 from datetime import datetime, timedelta
+from sqlalchemy import func # <<<--- CORRECTION : Ajout de l'import manquant
+
+from app.models import Utilisateur, Commande, Produit
 from app.extensions import db
 
 admin_bp = Blueprint('admin', __name__)
@@ -93,9 +97,3 @@ def register_device():
     admin.fcm_token = fcm_token
     db.session.commit()
     return jsonify({"msg": "Appareil enregistré avec succès pour les notifications."}), 200
-
-
-
-
-
-
