@@ -1,7 +1,7 @@
 # app/client_auth/routes.py
 
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, create_refresh_token
 from flask_mail import Message
 import secrets
 
