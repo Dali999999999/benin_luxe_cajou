@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+from datetime import timedelta
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))
@@ -27,6 +28,7 @@ class Config:
     FEDAPAY_API_KEY = os.environ.get('FEDAPAY_API_KEY')
     FEDAPAY_ENVIRONMENT = os.environ.get('FEDAPAY_ENVIRONMENT')
     FIREBASE_SERVICE_ACCOUNT_JSON = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
+
 
 
 
