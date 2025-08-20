@@ -10,6 +10,8 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
     JWT_TOKEN_LOCATION = ["headers"]
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=15) # Durée courte pour la sécurité
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)  # Durée longue pour la persistance
     CLOUDINARY_URL = os.environ.get('CLOUDINARY_URL')
 
     # Configuration de Flask-Mail
@@ -25,5 +27,6 @@ class Config:
     FEDAPAY_API_KEY = os.environ.get('FEDAPAY_API_KEY')
     FEDAPAY_ENVIRONMENT = os.environ.get('FEDAPAY_ENVIRONMENT')
     FIREBASE_SERVICE_ACCOUNT_JSON = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
+
 
 
