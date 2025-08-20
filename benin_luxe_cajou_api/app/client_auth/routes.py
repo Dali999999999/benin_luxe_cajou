@@ -1,7 +1,7 @@
 # app/client_auth/routes.py
 
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import create_access_token, create_refresh_token
+from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity
 from flask_mail import Message
 import secrets
 
@@ -121,7 +121,8 @@ def client_verify_account():
         merge_guest_cart_to_user(user.id, session_id)
         
         access_token = create_access_token(identity=str(user.id))
-        return jsonify(access_token=access_token), 200
+        refresh_token = create_refresh_token(identity=str(user.id))
+        return jsonify(access_token=access_token, refresh_token=refresh_token), 200
     else:
         return jsonify({"msg": "Code de vérification incorrect"}), 400
 
@@ -148,7 +149,8 @@ def client_login():
         merge_guest_cart_to_user(user.id, session_id)
         
         access_token = create_access_token(identity=str(user.id))
-        return jsonify(access_token=access_token)
+        refresh_token = create_refresh_token(identity=str(user.id))
+        return jsonify(access_token=access_token, refresh_token=refresh_token)
     
     return jsonify({"msg": "Email ou mot de passe incorrect"}), 401
 
@@ -223,3 +225,10 @@ def client_reset_password():
     else:
         # Message d'erreur générique pour la sécurité
         return jsonify({"msg": "Le code de vérification est invalide ou a expiré."}), 400
+
+@client_auth_bp.route('/refresh', methods=['POST'])
+@jwt_required(refresh=True) # <-- Exige un refresh_token, pas un access_token
+def refresh_client_token():
+    current_user_id = get_jwt_identity()
+    new_access_token = create_access_token(identity=current_user_id)
+    return jsonify(access_token=new_access_token)
