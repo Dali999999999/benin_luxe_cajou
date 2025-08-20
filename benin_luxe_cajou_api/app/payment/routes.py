@@ -387,7 +387,7 @@ def initialize_payment():
             "currency": {
                 "iso": "XOF"
             },
-            "callback_url": f"http://localhost:3000/payment-success?order_id={new_order.id}",
+            "callback_url": f"https://benin-luxe-cajou-frontend-842xbmltr-dalis-projects-fdecfaab.vercel.app/payment-success?order_id={new_order.id}",
             "customer": {
                 "firstname": user.prenom,
                 "lastname": user.nom,
