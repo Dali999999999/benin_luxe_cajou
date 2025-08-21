@@ -248,30 +248,45 @@ def send_low_stock_notification(product):
         current_app.logger.error(f"Erreur lors de l'envoi de la notification de stock faible pour le produit {product.id}: {e}")
 
 def process_payment_confirmation(order):
-    """Traite la confirmation d'un paiement (mise à jour + notifications)"""
+    """
+    Traite la confirmation d'un paiement : met à jour la BDD, le stock,
+    vide le panier et envoie les notifications.
+    """
     try:
-        # 1. Mettre à jour la base de données
+        # 1. Mettre à jour les statuts de la commande et du paiement
         order.statut_paiement = 'paye'
         order.statut = 'confirmee'
         
-        # Mettre à jour le statut du paiement
         payment = Paiement.query.filter_by(commande_id=order.id).first()
         if payment:
             payment.statut = 'approved'
         
+        # --- NOUVELLE LOGIQUE CRITIQUE AJOUTÉE ICI ---
+        # 2. Décrémenter le stock des produits commandés
+        details = DetailsCommande.query.filter_by(commande_id=order.id).all()
+        for detail in details:
+            product = detail.produit # Utiliser la relation pré-chargée
+            if product and product.gestion_stock == 'limite':
+                product.stock_disponible -= detail.quantite
+                # Envoyer une notification si le stock devient faible après cet achat
+                if product.stock_disponible <= product.stock_minimum:
+                    send_low_stock_notification(product)
+
+        # 3. Vider le panier de l'utilisateur
+        Panier.query.filter_by(utilisateur_id=order.utilisateur_id).delete()
+        # --- FIN DE LA NOUVELLE LOGIQUE ---
+        
         db.session.commit()
-        current_app.logger.info(f"Statut de la commande {order.numero_commande} mis à jour: paiement confirmé")
+        current_app.logger.info(f"Statut et stock mis à jour pour la commande {order.numero_commande}.")
         
-        # 2. Envoyer l'email de confirmation au client
+        # 4. Envoyer les notifications (email et push)
         send_order_confirmation_email(order)
-        
-        # 3. Envoyer la notification push à l'admin
         send_new_order_push_notification(order)
         
         return True
         
     except Exception as e:
-        current_app.logger.error(f"Erreur lors du traitement de la confirmation de paiement pour la commande {order.id}: {e}")
+        current_app.logger.error(f"Erreur lors du traitement de la confirmation de paiement pour la commande {order.id}: {e}", exc_info=True)
         db.session.rollback()
         return False
 
@@ -281,9 +296,9 @@ def process_payment_confirmation(order):
 @jwt_required()
 def initialize_payment():
     """
-    Orchestre le début du processus de paiement et envoie des alertes de stock faible.
+    Orchestre le début du processus de paiement.
+    Crée une commande "en attente" SANS modifier le stock ni vider le panier.
     """
-    # Initialiser les services
     initialize_services()
     client = get_fedapay_client()
     if not client:
@@ -293,7 +308,6 @@ def initialize_payment():
     user = Utilisateur.query.get_or_404(user_id)
     data = request.get_json()
 
-    # --- Étape 1 : Validation des données d'entrée ---
     required_fields = ['nom_destinataire', 'telephone_destinataire', 'zone_livraison_id', 'type_adresse', 'description_adresse']
     if not all(field in data for field in required_fields):
         return jsonify({"msg": "Données de livraison incomplètes"}), 400
@@ -302,38 +316,21 @@ def initialize_payment():
     if not cart_items:
         return jsonify({"msg": "Votre panier est vide"}), 400
 
-    # --- DÉBUT DE LA TRANSACTION EN BASE DE DONNÉES ---
     try:
-        # Log de debug pour vérifier la configuration
         current_app.logger.info(f"FEDAPAY_ENVIRONMENT: {Config.FEDAPAY_ENVIRONMENT}")
         current_app.logger.info(f"FEDAPAY_API_KEY commence par: {Config.FEDAPAY_API_KEY[:15] if Config.FEDAPAY_API_KEY else 'NONE'}...")
 
-        # --- Étape 2 : Création de l'adresse et calculs des totaux ---
-        
-        # <<<--- CORRECTION APPLIQUÉE ICI ---
-        # On récupère les coordonnées et on les nettoie
         latitude = data.get('latitude')
         longitude = data.get('longitude')
-        
-        # Si le frontend envoie des chaînes vides pour une adresse manuelle,
-        # on les convertit en None pour que la base de données les accepte comme NULL.
-        if latitude == '':
-            latitude = None
-        if longitude == '':
-            longitude = None
-        # --- FIN DE LA CORRECTION ---
+        if latitude == '': latitude = None
+        if longitude == '': longitude = None
 
         new_address = AdresseLivraison(
-            utilisateur_id=user.id,
-            nom_destinataire=data['nom_destinataire'],
-            telephone_destinataire=data['telephone_destinataire'],
-            type_adresse=data['type_adresse'],
-            ville=data.get('ville'),
-            quartier=data.get('quartier'),
-            description_adresse=data['description_adresse'],
-            point_repere=data.get('point_repere'),
-            latitude=latitude,   # Utilisation de la variable nettoyée
-            longitude=longitude  # Utilisation de la variable nettoyée
+            utilisateur_id=user.id, nom_destinataire=data['nom_destinataire'],
+            telephone_destinataire=data['telephone_destinataire'], type_adresse=data['type_adresse'],
+            ville=data.get('ville'), quartier=data.get('quartier'),
+            description_adresse=data['description_adresse'], point_repere=data.get('point_repere'),
+            latitude=latitude, longitude=longitude
         )
         db.session.add(new_address)
         db.session.flush()
@@ -364,74 +361,46 @@ def initialize_payment():
         total = (sous_total - montant_reduction) + frais_livraison
         total = max(total, Decimal(0))
 
-        # --- Étape 3 : Création de la commande "en attente" ---
         new_order = Commande(
-            utilisateur_id=user.id,
-            adresse_livraison_id=new_address.id,
-            sous_total=sous_total,
-            frais_livraison=frais_livraison,
-            montant_reduction=montant_reduction,
-            total=total,
-            coupon_id=coupon.id if coupon else None,
-            statut='en_attente',
-            statut_paiement='en_attente',
-            notes_client=data.get('notes_client')
+            utilisateur_id=user.id, adresse_livraison_id=new_address.id, sous_total=sous_total,
+            frais_livraison=frais_livraison, montant_reduction=montant_reduction, total=total,
+            coupon_id=coupon.id if coupon else None, statut='en_attente',
+            statut_paiement='en_attente', notes_client=data.get('notes_client')
         )
         db.session.add(new_order)
         db.session.flush()
 
-        products_to_check_stock = []
-
         for item in cart_items:
             db.session.add(DetailsCommande(
-                commande_id=new_order.id,
-                produit_id=item.produit_id,
-                quantite=item.quantite,
+                commande_id=new_order.id, produit_id=item.produit_id, quantite=item.quantite,
                 prix_unitaire=item.produit.prix_unitaire,
                 sous_total=item.produit.prix_unitaire * item.quantite
             ))
-            if item.produit.gestion_stock == 'limite':
-                item.produit.stock_disponible -= item.quantite
-                products_to_check_stock.append(item.produit)
+            # <<<--- SUPPRESSION DE LA MODIFICATION DU STOCK ICI ---
 
-        # --- Étape 4 : Création de la transaction FedaPay ---
         transaction_data = {
-            "description": f"Paiement pour commande #{new_order.numero_commande}",
-            "amount": int(total),
+            "description": f"Paiement pour commande #{new_order.numero_commande}", "amount": int(total),
             "currency": { "iso": "XOF" },
             "callback_url": f"https://benin-luxe-cajou-frontend-842xbmltr-dalis-projects-fdecfaab.vercel.app/payment-success?order_id={new_order.id}",
             "customer": {
-                "firstname": user.prenom,
-                "lastname": user.nom,
-                "email": user.email,
-                "phone_number": {
-                    "number": data['telephone_destinataire'],
-                    "country": "bj"
-                }
+                "firstname": user.prenom, "lastname": user.nom, "email": user.email,
+                "phone_number": { "number": data['telephone_destinataire'], "country": "bj" }
             }
         }
 
         transaction_response = client.create_transaction(transaction_data)
         transaction_id = transaction_response['v1/transaction']['id']
-        
         token_response = client.generate_token(transaction_id)
         payment_url = token_response['url']
 
-        # --- Étape 5 : Liaison de la commande et de la transaction ---
         db.session.add(Paiement(
-            commande_id=new_order.id,
-            fedapay_transaction_id=str(transaction_id),
-            montant=total,
-            statut='pending'
+            commande_id=new_order.id, fedapay_transaction_id=str(transaction_id),
+            montant=total, statut='pending'
         ))
         
-        Panier.query.filter_by(utilisateur_id=user.id).delete()
+        # <<<--- SUPPRESSION DU VIDAGE DU PANIER ICI ---
+        
         db.session.commit()
-
-        # --- Étape 6 : Vérification du stock après le commit ---
-        for product in products_to_check_stock:
-            if product.stock_disponible <= product.stock_minimum:
-                send_low_stock_notification(product)
 
         current_app.logger.info(f"Transaction FedaPay {transaction_id} créée pour la commande {new_order.numero_commande}.")
         return jsonify({"payment_url": payment_url}), 201
