@@ -309,6 +309,20 @@ def initialize_payment():
         current_app.logger.info(f"FEDAPAY_API_KEY commence par: {Config.FEDAPAY_API_KEY[:15] if Config.FEDAPAY_API_KEY else 'NONE'}...")
 
         # --- Étape 2 : Création de l'adresse et calculs des totaux ---
+        
+        # <<<--- CORRECTION APPLIQUÉE ICI ---
+        # On récupère les coordonnées et on les nettoie
+        latitude = data.get('latitude')
+        longitude = data.get('longitude')
+        
+        # Si le frontend envoie des chaînes vides pour une adresse manuelle,
+        # on les convertit en None pour que la base de données les accepte comme NULL.
+        if latitude == '':
+            latitude = None
+        if longitude == '':
+            longitude = None
+        # --- FIN DE LA CORRECTION ---
+
         new_address = AdresseLivraison(
             utilisateur_id=user.id,
             nom_destinataire=data['nom_destinataire'],
@@ -318,8 +332,8 @@ def initialize_payment():
             quartier=data.get('quartier'),
             description_adresse=data['description_adresse'],
             point_repere=data.get('point_repere'),
-            latitude=data.get('latitude'),
-            longitude=data.get('longitude')
+            latitude=latitude,   # Utilisation de la variable nettoyée
+            longitude=longitude  # Utilisation de la variable nettoyée
         )
         db.session.add(new_address)
         db.session.flush()
@@ -366,7 +380,7 @@ def initialize_payment():
         db.session.add(new_order)
         db.session.flush()
 
-        products_to_check_stock = []  # Liste pour stocker les produits dont le stock a été modifié
+        products_to_check_stock = []
 
         for item in cart_items:
             db.session.add(DetailsCommande(
@@ -378,15 +392,13 @@ def initialize_payment():
             ))
             if item.produit.gestion_stock == 'limite':
                 item.produit.stock_disponible -= item.quantite
-                products_to_check_stock.append(item.produit)  # On ajoute le produit à la liste de vérification
+                products_to_check_stock.append(item.produit)
 
-        # --- Étape 4 : Création de la transaction FedaPay (CORRIGÉE AVEC API REST) ---
+        # --- Étape 4 : Création de la transaction FedaPay ---
         transaction_data = {
             "description": f"Paiement pour commande #{new_order.numero_commande}",
-            "amount": int(total),  # Montant en centimes (XOF)
-            "currency": {
-                "iso": "XOF"
-            },
+            "amount": int(total),
+            "currency": { "iso": "XOF" },
             "callback_url": f"https://benin-luxe-cajou-frontend-842xbmltr-dalis-projects-fdecfaab.vercel.app/payment-success?order_id={new_order.id}",
             "customer": {
                 "firstname": user.prenom,
@@ -394,16 +406,14 @@ def initialize_payment():
                 "email": user.email,
                 "phone_number": {
                     "number": data['telephone_destinataire'],
-                    "country": "bj"  # Code pays pour le Bénin
+                    "country": "bj"
                 }
             }
         }
 
-        # Créer la transaction avec l'API REST
         transaction_response = client.create_transaction(transaction_data)
         transaction_id = transaction_response['v1/transaction']['id']
         
-        # Générer le token de paiement
         token_response = client.generate_token(transaction_id)
         payment_url = token_response['url']
 
@@ -416,11 +426,10 @@ def initialize_payment():
         ))
         
         Panier.query.filter_by(utilisateur_id=user.id).delete()
-        db.session.commit()  # La transaction est validée, le stock est mis à jour en BDD
+        db.session.commit()
 
-        # --- Étape 6 (NOUVEAU) : Vérification du stock après le commit ---
+        # --- Étape 6 : Vérification du stock après le commit ---
         for product in products_to_check_stock:
-            # On vérifie si le nouveau stock est passé sous le seuil critique
             if product.stock_disponible <= product.stock_minimum:
                 send_low_stock_notification(product)
 
