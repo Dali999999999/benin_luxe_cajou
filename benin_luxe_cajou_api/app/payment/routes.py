@@ -169,10 +169,10 @@ def send_order_confirmation_email(order):
         current_app.logger.error(f"Erreur lors de l'envoi de l'email de confirmation pour la commande {order.id}: {e}")
 
 def send_new_order_push_notification(order):
-    """Envoie une notification push aux admins pour une nouvelle commande"""
+    """Envoie une notification push pour une nouvelle commande avec un son spécifique."""
     try:
         if not firebase_initialized:
-            current_app.logger.warning("Firebase non initialisé, impossible d'envoyer la notification push")
+            current_app.logger.warning("Firebase non initialisé, impossible d'envoyer la notification push.")
             return
             
         admins = Utilisateur.query.filter_by(role='admin').all()
@@ -186,32 +186,46 @@ def send_new_order_push_notification(order):
                             title='🎉 Nouvelle Commande !',
                             body=f'Commande #{order.numero_commande} ({order.total} FCFA) a été payée.'
                         ),
+                        token=admin.fcm_token,
                         data={
                             'order_id': str(order.id),
-                            'order_number': order.numero_commande,
-                            'amount': str(order.total),
-                            'type': 'new_order'
+                            'type': 'new_order' # Étiquette pour que Flutter puisse identifier le type de notification
                         },
-                        token=admin.fcm_token,
+                        # --- Configuration du son personnalisé pour Android ---
+                        android=messaging.AndroidConfig(
+                            notification=messaging.AndroidNotification(
+                                # Nom du fichier son dans android/app/src/main/res/raw (SANS extension)
+                                sound='new_order_sound' 
+                            )
+                        ),
+                        # --- Configuration du son personnalisé pour iOS ---
+                        apns=messaging.APNSConfig(
+                            payload=messaging.APNSPayload(
+                                aps=messaging.APS(
+                                    # Nom du fichier son ajouté au projet Xcode (AVEC extension)
+                                    sound='new_order_sound.wav' 
+                                )
+                            )
+                        )
                     )
                     
-                    response = messaging.send(message)
+                    messaging.send(message)
                     notifications_sent += 1
-                    current_app.logger.info(f"Notification push envoyée à l'admin {admin.id} (token: {admin.fcm_token[:10]}...)")
+                    current_app.logger.info(f"Notification push 'Nouvelle Commande' envoyée à l'admin {admin.id}")
                     
                 except Exception as token_error:
-                    current_app.logger.error(f"Erreur lors de l'envoi de la notification à l'admin {admin.id}: {token_error}")
+                    current_app.logger.error(f"Erreur lors de l'envoi de la notification 'Nouvelle Commande' à l'admin {admin.id}: {token_error}")
         
-        current_app.logger.info(f"{notifications_sent} notifications push envoyées pour la commande {order.numero_commande}")
+        current_app.logger.info(f"{notifications_sent} notifications 'Nouvelle Commande' envoyées pour la commande {order.numero_commande}")
         
     except Exception as e:
         current_app.logger.error(f"Erreur générale lors de l'envoi des notifications push pour la commande {order.id}: {e}")
 
 def send_low_stock_notification(product):
-    """Envoie une notification push pour un produit en stock faible."""
+    """Envoie une notification push pour un produit en stock faible avec un son différent."""
     try:
         if not firebase_initialized:
-            current_app.logger.warning("Firebase non initialisé, impossible d'envoyer la notification de stock faible")
+            current_app.logger.warning("Firebase non initialisé, impossible d'envoyer la notification de stock faible.")
             return
             
         admins = Utilisateur.query.filter_by(role='admin').all()
@@ -223,26 +237,39 @@ def send_low_stock_notification(product):
                     message = messaging.Message(
                         notification=messaging.Notification(
                             title='⚠️ Alerte Stock Faible !',
-                            body=f"Le stock pour '{product.nom}' est de {product.stock_disponible}. Le seuil est de {product.stock_minimum}."
+                            body=f"Le stock pour '{product.nom}' est de {product.stock_disponible} (seuil: {product.stock_minimum})."
                         ),
+                        token=admin.fcm_token,
                         data={
                             "product_id": str(product.id),
-                            "product_name": product.nom,
-                            "current_stock": str(product.stock_disponible),
-                            "minimum_stock": str(product.stock_minimum),
-                            "type": "low_stock_alert"
+                            "type": "low_stock_alert" # Étiquette différente pour Flutter
                         },
-                        token=admin.fcm_token,
+                        # --- Configuration du son personnalisé pour Android ---
+                        android=messaging.AndroidConfig(
+                            notification=messaging.AndroidNotification(
+                                # Nom du fichier son dans android/app/src/main/res/raw (SANS extension)
+                                sound='low_stock_sound'
+                            )
+                        ),
+                        # --- Configuration du son personnalisé pour iOS ---
+                        apns=messaging.APNSConfig(
+                            payload=messaging.APNSPayload(
+                                aps=messaging.APS(
+                                    # Nom du fichier son ajouté au projet Xcode (AVEC extension)
+                                    sound='low_stock_sound.wav'
+                                )
+                            )
+                        )
                     )
                     
                     messaging.send(message)
                     notifications_sent += 1
-                    current_app.logger.info(f"Notification de stock faible envoyée à l'admin {admin.id} pour le produit {product.nom}")
+                    current_app.logger.info(f"Notification 'Stock Faible' envoyée à l'admin {admin.id} pour le produit {product.nom}")
                     
                 except Exception as token_error:
-                    current_app.logger.error(f"Erreur lors de l'envoi de la notification de stock faible à l'admin {admin.id}: {token_error}")
+                    current_app.logger.error(f"Erreur lors de l'envoi de la notification 'Stock Faible' à l'admin {admin.id}: {token_error}")
         
-        current_app.logger.info(f"{notifications_sent} notifications de stock faible envoyées pour le produit {product.nom}")
+        current_app.logger.info(f"{notifications_sent} notifications 'Stock Faible' envoyées pour le produit {product.nom}")
         
     except Exception as e:
         current_app.logger.error(f"Erreur lors de l'envoi de la notification de stock faible pour le produit {product.id}: {e}")
