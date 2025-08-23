@@ -223,50 +223,69 @@ def resend_verification_code():
             current_app.logger.error("Ni email ni token fournis")
             return jsonify({"msg": "Email ou token requis"}), 400
 
-    user = None
-    
-    # Si un token est fourni, on essaie de l'extraire pour récupérer l'email
-    if token:
-        try:
-            decoded_token = decode_token(token)
-            if decoded_token.get('type') != 'verification':
-                return jsonify({"msg": "Type de token invalide."}), 400
-            
-            email_from_token = decoded_token.get('sub')
-            user = Utilisateur.query.filter_by(email=email_from_token, role='client').first()
-            
-        except ExpiredSignatureError:
-            return jsonify({"msg": "Le token de vérification a expiré."}), 400
-        except Exception as e:
-            return jsonify({"msg": "Token de vérification invalide."}), 400
-    
-    # Si pas de token ou token invalide, on essaie avec l'email
-    if not user and email:
-        user = Utilisateur.query.filter_by(email=email, role='client').first()
+        user = None
+        
+        # Si un token est fourni, on essaie de l'extraire pour récupérer l'email
+        if token:
+            try:
+                current_app.logger.info(f"Tentative de décodage du token: {token[:50]}...")
+                decoded_token = decode_token(token)
+                current_app.logger.info(f"Token décodé: {decoded_token}")
+                
+                if decoded_token.get('type') != 'verification':
+                    current_app.logger.error(f"Type de token invalide: {decoded_token.get('type')}")
+                    return jsonify({"msg": "Type de token invalide."}), 400
+                
+                email_from_token = decoded_token.get('sub')
+                current_app.logger.info(f"Email extrait du token: {email_from_token}")
+                
+                user = Utilisateur.query.filter_by(email=email_from_token, role='client').first()
+                current_app.logger.info(f"Utilisateur trouvé: {user.email if user else None}")
+                
+            except ExpiredSignatureError:
+                current_app.logger.error("Token expiré")
+                return jsonify({"msg": "Le token de vérification a expiré."}), 400
+            except Exception as e:
+                current_app.logger.error(f"Erreur lors du décodage du token: {e}")
+                return jsonify({"msg": "Token de vérification invalide."}), 400
+        
+        # Si pas de token ou token invalide, on essaie avec l'email
+        if not user and email:
+            current_app.logger.info(f"Recherche utilisateur par email: {email}")
+            user = Utilisateur.query.filter_by(email=email, role='client').first()
+            current_app.logger.info(f"Utilisateur trouvé par email: {user.email if user else None}")
 
-    # On ne renvoie pas d'erreur si l'utilisateur n'existe pas ou est déjà vérifié
-    # pour des raisons de sécurité (éviter l'énumération d'emails).
-    if user and not user.email_verifie:
-        verification_code = str(secrets.randbelow(900000) + 100000)
-        hashed_code = bcrypt.hashpw(verification_code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        
-        # Créer un nouveau JWT de vérification
-        verification_jwt = create_access_token(
-            identity=user.email,
-            expires_delta=timedelta(minutes=15),
-            additional_claims={"code_hash": hashed_code, "type": "verification"}
-        )
-        
-        user.token_verification = verification_jwt
-        db.session.commit()
-        send_verification_email(user.email, verification_code, "Votre nouveau code de vérification")
-        
-        return jsonify({
-            "msg": "Un nouveau code de vérification a été envoyé.",
-            "verification_token": verification_jwt
-        }), 200
+        # On ne renvoie pas d'erreur si l'utilisateur n'existe pas ou est déjà vérifié
+        # pour des raisons de sécurité (éviter l'énumération d'emails).
+        if user and not user.email_verifie:
+            current_app.logger.info(f"Génération d'un nouveau code pour: {user.email}")
+            verification_code = str(secrets.randbelow(900000) + 100000)
+            hashed_code = bcrypt.hashpw(verification_code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            
+            # Créer un nouveau JWT de vérification
+            verification_jwt = create_access_token(
+                identity=user.email,
+                expires_delta=timedelta(minutes=15),
+                additional_claims={"code_hash": hashed_code, "type": "verification"}
+            )
+            
+            user.token_verification = verification_jwt
+            db.session.commit()
+            send_verification_email(user.email, verification_code, "Votre nouveau code de vérification")
+            
+            current_app.logger.info("Nouveau code envoyé avec succès")
+            return jsonify({
+                "msg": "Un nouveau code de vérification a été envoyé.",
+                "verification_token": verification_jwt
+            }), 200
+        else:
+            current_app.logger.info(f"Utilisateur non éligible: exists={user is not None}, verified={user.email_verifie if user else 'N/A'}")
 
-    return jsonify({"msg": "Si un compte non vérifié est associé à cet email, un nouveau code a été envoyé."}), 200
+        return jsonify({"msg": "Si un compte non vérifié est associé à cet email, un nouveau code a été envoyé."}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Erreur dans resend_verification_code: {e}")
+        return jsonify({"msg": "Une erreur est survenue"}), 500
 
 @client_auth_bp.route('/forgot-password', methods=['POST'])
 def client_forgot_password():
