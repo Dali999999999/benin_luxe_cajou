@@ -216,6 +216,14 @@ def resend_verification_code():
         email = data.get('email') if data else None
         token = data.get('token') if data else None
         
+        # Vérification spéciale : si token est un objet au lieu d'une string
+        if token and isinstance(token, dict):
+            current_app.logger.warning(f"Token reçu comme objet: {token}")
+            # Si c'est un objet avec un email, on l'utilise
+            if 'email' in token:
+                email = token['email']
+                token = None  # On ignore le "token" car ce n'est pas vraiment un token
+        
         current_app.logger.info(f"Email extrait: {email}")
         current_app.logger.info(f"Token extrait: {token}")
 
