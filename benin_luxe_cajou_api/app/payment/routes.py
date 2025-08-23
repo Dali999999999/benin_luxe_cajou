@@ -201,7 +201,7 @@ def send_new_order_push_notification(order):
                         # --- Configuration du son personnalisé pour iOS ---
                         apns=messaging.APNSConfig(
                             payload=messaging.APNSPayload(
-                                aps=messaging.APS(
+                                aps=messaging.Aps(  # ✅ CORRECTION: Aps au lieu de APS
                                     # Nom du fichier son ajouté au projet Xcode (AVEC extension)
                                     sound='new_order_sound.wav' 
                                 )
@@ -254,7 +254,7 @@ def send_low_stock_notification(product):
                         # --- Configuration du son personnalisé pour iOS ---
                         apns=messaging.APNSConfig(
                             payload=messaging.APNSPayload(
-                                aps=messaging.APS(
+                                aps=messaging.Aps(  # ✅ CORRECTION: Aps au lieu de APS
                                     # Nom du fichier son ajouté au projet Xcode (AVEC extension)
                                     sound='low_stock_sound.wav'
                                 )
