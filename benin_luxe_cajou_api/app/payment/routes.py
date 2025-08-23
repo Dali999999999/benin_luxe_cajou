@@ -408,7 +408,7 @@ def initialize_payment():
         transaction_data = {
             "description": f"Paiement pour commande #{new_order.numero_commande}", "amount": int(total),
             "currency": { "iso": "XOF" },
-            "callback_url": f"https://benin-luxe-cajou-frontend-842xbmltr-dalis-projects-fdecfaab.vercel.app/payment-success?order_id={new_order.id}",
+            "callback_url": f"https://benin-luxe-cajou-frontend.vercel.app/payment-success?order_id={new_order.id}",
             "customer": {
                 "firstname": user.prenom, "lastname": user.nom, "email": user.email,
                 "phone_number": { "number": data['telephone_destinataire'], "country": "bj" }
