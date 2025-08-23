@@ -209,12 +209,19 @@ def resend_verification_code():
     Renvoie un nouveau code de vérification à un utilisateur non encore vérifié.
     Accepte soit un email, soit un token de vérification.
     """
-    data = request.get_json()
-    email = data.get('email')
-    token = data.get('token')
+    try:
+        data = request.get_json()
+        current_app.logger.info(f"Data reçue dans resend-verification: {data}")
+        
+        email = data.get('email') if data else None
+        token = data.get('token') if data else None
+        
+        current_app.logger.info(f"Email extrait: {email}")
+        current_app.logger.info(f"Token extrait: {token}")
 
-    if not email and not token:
-        return jsonify({"msg": "Email ou token requis"}), 400
+        if not email and not token:
+            current_app.logger.error("Ni email ni token fournis")
+            return jsonify({"msg": "Email ou token requis"}), 400
 
     user = None
     
