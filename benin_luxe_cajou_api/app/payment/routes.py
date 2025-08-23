@@ -194,6 +194,8 @@ def send_new_order_push_notification(order):
                         # --- Configuration du son personnalisé pour Android ---
                         android=messaging.AndroidConfig(
                             notification=messaging.AndroidNotification(
+                                # Canal spécifique pour les nouvelles commandes
+                                channel_id='new_order_channel',
                                 # Nom du fichier son dans android/app/src/main/res/raw (SANS extension)
                                 sound='new_order_sound' 
                             )
@@ -247,6 +249,8 @@ def send_low_stock_notification(product):
                         # --- Configuration du son personnalisé pour Android ---
                         android=messaging.AndroidConfig(
                             notification=messaging.AndroidNotification(
+                                # Canal spécifique pour les alertes de stock faible
+                                channel_id='low_stock_channel',
                                 # Nom du fichier son dans android/app/src/main/res/raw (SANS extension)
                                 sound='low_stock_sound'
                             )
