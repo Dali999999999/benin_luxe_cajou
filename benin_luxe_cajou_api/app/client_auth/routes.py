@@ -1,8 +1,9 @@
 # app/client_auth/routes.py
 
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required
+from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required, decode_token
 from flask_mail import Message
+from jwt.exceptions import ExpiredSignatureError  # Importation correcte
 import secrets
 import bcrypt
 from app.models import Utilisateur, Panier
@@ -69,43 +70,53 @@ def client_register():
     et génère un JWT de vérification qui contient le HASH de ce code.
     Renvoie le JWT de vérification au frontend.
     """
-    data = request.get_json()
-    nom, prenom, email, password = data.get('nom'), data.get('prenom'), data.get('email'), data.get('password')
+    try:
+        data = request.get_json()
+        nom, prenom, email, password = data.get('nom'), data.get('prenom'), data.get('email'), data.get('password')
 
-    if not all([nom, prenom, email, password]):
-        return jsonify({"msg": "Tous les champs sont requis"}), 400
-    if Utilisateur.query.filter_by(email=email).first():
-        return jsonify({"msg": "Un compte existe déjà avec cet email"}), 409
+        if not all([nom, prenom, email, password]):
+            return jsonify({"msg": "Tous les champs sont requis"}), 400
+        if Utilisateur.query.filter_by(email=email).first():
+            return jsonify({"msg": "Un compte existe déjà avec cet email"}), 409
 
-    # 1. Générer le code simple et son hash sécurisé
-    verification_code = str(secrets.randbelow(900000) + 100000)
-    hashed_code = bcrypt.hashpw(verification_code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        # 1. Générer le code simple et son hash sécurisé
+        verification_code = str(secrets.randbelow(900000) + 100000)
+        hashed_code = bcrypt.hashpw(verification_code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-    # 2. Créer un JWT de vérification qui contient le hash
-    # Note: On utilise une fonction de bas niveau de la bibliothèque JWT
-    verification_jwt = create_access_token(
-        identity=email, # On peut utiliser l'email comme identifiant temporaire
-        expires_delta=timedelta(minutes=15),
-        additional_claims={"code_hash": hashed_code, "type": "verification"}
-    )
+        # 2. Créer un JWT de vérification qui contient le hash
+        verification_jwt = create_access_token(
+            identity=email, # On peut utiliser l'email comme identifiant temporaire
+            expires_delta=timedelta(minutes=15),
+            additional_claims={"code_hash": hashed_code, "type": "verification"}
+        )
 
-    new_client = Utilisateur(
-        nom=nom, prenom=prenom, email=email, role='client', email_verifie=False,
-        token_verification=verification_jwt # On stocke le JWT de vérification
-    )
-    new_client.set_password(password)
-    
-    db.session.add(new_client)
-    db.session.commit()
-    
-    # 3. Envoyer le code simple par email
-    send_verification_email(new_client.email, verification_code, "Activez votre compte Benin Luxe Cajou")
+        new_client = Utilisateur(
+            nom=nom, prenom=prenom, email=email, role='client', email_verifie=False,
+            token_verification=verification_jwt # On stocke le JWT de vérification
+        )
+        new_client.set_password(password)
+        
+        db.session.add(new_client)
+        db.session.commit()
+        
+        # 3. Envoyer le code simple par email
+        email_sent = send_verification_email(new_client.email, verification_code, "Activez votre compte Benin Luxe Cajou")
+        
+        if not email_sent:
+            # Si l'email n'a pas pu être envoyé, on peut choisir de supprimer l'utilisateur ou de renvoyer une erreur
+            db.session.delete(new_client)
+            db.session.commit()
+            return jsonify({"msg": "Erreur lors de l'envoi de l'email. Veuillez réessayer."}), 500
 
-    # 4. Renvoyer le JWT de vérification au frontend
-    return jsonify({
-        "msg": "Compte créé. Un code de vérification a été envoyé.",
-        "verification_token": verification_jwt
-    }), 201
+        # 4. Renvoyer le JWT de vérification au frontend
+        return jsonify({
+            "msg": "Compte créé. Un code de vérification a été envoyé.",
+            "verification_token": verification_jwt
+        }), 201
+        
+    except Exception as e:
+        current_app.logger.error(f"Erreur lors de l'inscription: {e}")
+        return jsonify({"msg": "Une erreur est survenue lors de la création du compte."}), 500
 
 @client_auth_bp.route('/verify-account', methods=['POST'])
 def client_verify_account():
@@ -161,6 +172,7 @@ def client_verify_account():
         return jsonify({"msg": "Le token de vérification a expiré."}), 400
     except Exception as e:
         # Gérer d'autres erreurs JWT (token malformé, etc.)
+        current_app.logger.error(f"Erreur lors de la vérification: {e}")
         return jsonify({"msg": "Token de vérification invalide."}), 400
 
 @client_auth_bp.route('/login', methods=['POST'])
@@ -208,7 +220,16 @@ def resend_verification_code():
     # pour des raisons de sécurité (éviter l'énumération d'emails).
     if user and not user.email_verifie:
         verification_code = str(secrets.randbelow(900000) + 100000)
-        user.token_verification = verification_code
+        hashed_code = bcrypt.hashpw(verification_code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        # Créer un nouveau JWT de vérification
+        verification_jwt = create_access_token(
+            identity=email,
+            expires_delta=timedelta(minutes=15),
+            additional_claims={"code_hash": hashed_code, "type": "verification"}
+        )
+        
+        user.token_verification = verification_jwt
         db.session.commit()
         send_verification_email(user.email, verification_code, "Votre nouveau code de vérification")
 
