@@ -207,14 +207,35 @@ def client_login():
 def resend_verification_code():
     """
     Renvoie un nouveau code de vérification à un utilisateur non encore vérifié.
+    Accepte soit un email, soit un token de vérification.
     """
     data = request.get_json()
     email = data.get('email')
+    token = data.get('token')
 
-    if not email:
-        return jsonify({"msg": "Email requis"}), 400
-        
-    user = Utilisateur.query.filter_by(email=email, role='client').first()
+    if not email and not token:
+        return jsonify({"msg": "Email ou token requis"}), 400
+
+    user = None
+    
+    # Si un token est fourni, on essaie de l'extraire pour récupérer l'email
+    if token:
+        try:
+            decoded_token = decode_token(token)
+            if decoded_token.get('type') != 'verification':
+                return jsonify({"msg": "Type de token invalide."}), 400
+            
+            email_from_token = decoded_token.get('sub')
+            user = Utilisateur.query.filter_by(email=email_from_token, role='client').first()
+            
+        except ExpiredSignatureError:
+            return jsonify({"msg": "Le token de vérification a expiré."}), 400
+        except Exception as e:
+            return jsonify({"msg": "Token de vérification invalide."}), 400
+    
+    # Si pas de token ou token invalide, on essaie avec l'email
+    if not user and email:
+        user = Utilisateur.query.filter_by(email=email, role='client').first()
 
     # On ne renvoie pas d'erreur si l'utilisateur n'existe pas ou est déjà vérifié
     # pour des raisons de sécurité (éviter l'énumération d'emails).
@@ -224,7 +245,7 @@ def resend_verification_code():
         
         # Créer un nouveau JWT de vérification
         verification_jwt = create_access_token(
-            identity=email,
+            identity=user.email,
             expires_delta=timedelta(minutes=15),
             additional_claims={"code_hash": hashed_code, "type": "verification"}
         )
@@ -232,6 +253,11 @@ def resend_verification_code():
         user.token_verification = verification_jwt
         db.session.commit()
         send_verification_email(user.email, verification_code, "Votre nouveau code de vérification")
+        
+        return jsonify({
+            "msg": "Un nouveau code de vérification a été envoyé.",
+            "verification_token": verification_jwt
+        }), 200
 
     return jsonify({"msg": "Si un compte non vérifié est associé à cet email, un nouveau code a été envoyé."}), 200
 
