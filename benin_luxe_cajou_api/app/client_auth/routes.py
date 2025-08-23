@@ -7,6 +7,7 @@ import secrets
 
 from app.models import Utilisateur, Panier
 from app.extensions import db, mail
+from datetime import timedelta
 
 client_auth_bp = Blueprint('client_auth', __name__)
 
@@ -64,7 +65,9 @@ def merge_guest_cart_to_user(user_id, session_id):
 @client_auth_bp.route('/register', methods=['POST'])
 def client_register():
     """
-    Étape 1: Inscription du client. Crée un compte inactif et envoie un code.
+    Étape 1 (Votre Idée): Crée un compte inactif, envoie un code à 6 chiffres par email,
+    et génère un JWT de vérification qui contient le HASH de ce code.
+    Renvoie le JWT de vérification au frontend.
     """
     data = request.get_json()
     nom, prenom, email, password = data.get('nom'), data.get('prenom'), data.get('email'), data.get('password')
@@ -74,57 +77,91 @@ def client_register():
     if Utilisateur.query.filter_by(email=email).first():
         return jsonify({"msg": "Un compte existe déjà avec cet email"}), 409
 
+    # 1. Générer le code simple et son hash sécurisé
+    verification_code = str(secrets.randbelow(900000) + 100000)
+    hashed_code = bcrypt.hashpw(verification_code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+    # 2. Créer un JWT de vérification qui contient le hash
+    # Note: On utilise une fonction de bas niveau de la bibliothèque JWT
+    verification_jwt = create_access_token(
+        identity=email, # On peut utiliser l'email comme identifiant temporaire
+        expires_delta=timedelta(minutes=15),
+        additional_claims={"code_hash": hashed_code, "type": "verification"}
+    )
+
     new_client = Utilisateur(
-        nom=nom,
-        prenom=prenom,
-        email=email,
-        role='client',
-        email_verifie=False
+        nom=nom, prenom=prenom, email=email, role='client', email_verifie=False,
+        token_verification=verification_jwt # On stocke le JWT de vérification
     )
     new_client.set_password(password)
-    
-    verification_code = str(secrets.randbelow(900000) + 100000)
-    new_client.token_verification = verification_code
     
     db.session.add(new_client)
     db.session.commit()
     
+    # 3. Envoyer le code simple par email
     send_verification_email(new_client.email, verification_code, "Activez votre compte Benin Luxe Cajou")
 
-    return jsonify({"msg": "Compte créé. Un code de vérification a été envoyé à votre adresse email."}), 201
+    # 4. Renvoyer le JWT de vérification au frontend
+    return jsonify({
+        "msg": "Compte créé. Un code de vérification a été envoyé.",
+        "verification_token": verification_jwt
+    }), 201
 
 @client_auth_bp.route('/verify-account', methods=['POST'])
 def client_verify_account():
     """
-    Étape 2: Vérification du compte. Active le compte, fusionne le panier et renvoie le token.
+    Étape 2 (Votre Idée): Vérifie le JWT de vérification ET le code à 6 chiffres.
     """
     data = request.get_json()
-    email = data.get('email')
-    code = data.get('code')
+    token = data.get('token')
+    code = data.get('code') # Le code à 6 chiffres tapé par l'utilisateur
     session_id = data.get('session_id')
 
-    if not email or not code:
-        return jsonify({"msg": "Email et code requis"}), 400
+    if not token or not code:
+        return jsonify({"msg": "Token et code requis"}), 400
 
-    user = Utilisateur.query.filter_by(email=email, role='client').first()
-
-    if not user:
-        return jsonify({"msg": "Utilisateur non trouvé"}), 404
-    if user.email_verifie:
-        return jsonify({"msg": "Compte déjà vérifié"}), 400
-
-    if user.token_verification == code:
-        user.email_verifie = True
-        user.token_verification = None
-        db.session.commit()
-
-        merge_guest_cart_to_user(user.id, session_id)
+    try:
+        # 1. Décoder le JWT de vérification
+        decoded_token = decode_token(token)
         
-        access_token = create_access_token(identity=str(user.id))
-        refresh_token = create_refresh_token(identity=str(user.id))
-        return jsonify(access_token=access_token, refresh_token=refresh_token), 200
-    else:
-        return jsonify({"msg": "Code de vérification incorrect"}), 400
+        # Sécurité : On vérifie que c'est bien un token de notre type
+        if decoded_token.get('type') != 'verification':
+            return jsonify({"msg": "Type de token invalide."}), 400
+        
+        code_hash_from_token = decoded_token.get('code_hash')
+        email_from_token = decoded_token.get('sub')
+
+        # 2. Récupérer l'utilisateur
+        user = Utilisateur.query.filter_by(email=email_from_token, token_verification=token).first()
+        if not user:
+            return jsonify({"msg": "Token invalide ou déjà utilisé."}), 404
+        
+        # 3. Comparer le code fourni avec le hash stocké dans le token
+        if bcrypt.checkpw(code.encode('utf-8'), code_hash_from_token.encode('utf-8')):
+            # SUCCÈS ! Le code est correct.
+            user.email_verifie = True
+            user.token_verification = None # On invalide le token
+            db.session.commit()
+
+            merge_guest_cart_to_user(user.id, session_id)
+            
+            access_token = create_access_token(identity=str(user.id))
+            refresh_token = create_refresh_token(identity=str(user.id))
+            return jsonify(access_token=access_token, refresh_token=refresh_token), 200
+        else:
+            # Le code à 6 chiffres est incorrect
+            return jsonify({"msg": "Code de vérification incorrect."}), 400
+
+    except ExpiredSignatureError:
+        # Le token a expiré. On peut le nettoyer de la BDD.
+        Utilisateur.query.filter_by(token_verification=token).update({
+            'token_verification': None
+        })
+        db.session.commit()
+        return jsonify({"msg": "Le token de vérification a expiré."}), 400
+    except Exception as e:
+        # Gérer d'autres erreurs JWT (token malformé, etc.)
+        return jsonify({"msg": "Token de vérification invalide."}), 400
 
 @client_auth_bp.route('/login', methods=['POST'])
 def client_login():
