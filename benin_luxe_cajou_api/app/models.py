@@ -234,5 +234,14 @@ class ZoneLivraison(db.Model):
     date_creation = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
 
 
+class NewsletterSubscription(db.Model):
+    __tablename__ = 'newsletter_subscriptions'
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(150), unique=True, nullable=False)
+    subscribed_at = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+    is_active = db.Column(db.Boolean, default=True)
+
+
+
 
 
