@@ -2,8 +2,8 @@
 
 from .extensions import ma
 from .models import (
-    Categorie, TypeProduit, Produit, ImageProduit, Panier, 
-    Utilisateur, AdresseLivraison, Commande, ZoneLivraison, Coupon, DetailsCommande, SuiviCommande,
+    Categorie, TypeProduit, Produit, ImageProduit, Panier, NewsletterSubscription,
+    Utilisateur, AdresseLivraison, Commande, ZoneLivraison, Coupon, DetailsCommande, SuiviCommande, 
 )
 
 # --- CORRECTION : On définit SimpleTypeProduitSchema AVANT CategorieSchema ---
@@ -160,6 +160,11 @@ class CommandeDetailSchema(ma.SQLAlchemyAutoSchema):
         load_instance = True
         include_fk = True
 
+class NewsletterSubscriptionSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = NewsletterSubscription
+        load_instance = True
+
 # -----------------------------------------------------------------------------
 # INITIALISATION GLOBALE
 # -----------------------------------------------------------------------------
@@ -176,5 +181,6 @@ zone_livraison_schema, zones_livraison_schema = ZoneLivraisonSchema(), ZoneLivra
 coupon_schema, coupons_schema = CouponSchema(), CouponSchema(many=True)
 commande_schema = CommandeSchema()
 commandes_schema = CommandeSchema(many=True, only=("id", "numero_commande", "client.prenom", "client.nom", "total", "statut", "date_commande"))
-# --- AJOUT DE L'INITIALISATION DU NOUVEAU SCHÉMA ---
 commande_detail_schema = CommandeDetailSchema()
+newsletter_subscription_schema = NewsletterSubscriptionSchema()
+
