@@ -7,9 +7,10 @@ from marshmallow import ValidationError
 import json
 import time
 from functools import wraps
+from flask_mail import Message
 
-from app.extensions import db
-from app.models import Categorie, TypeProduit, Produit, ImageProduit
+from app.extensions import db, mail
+from app.models import Categorie, TypeProduit, Produit, ImageProduit, NewsletterSubscription
 from app.admin.admin_auth import admin_required
 from app.schemas import (
     categorie_schema, categories_schema,
@@ -133,6 +134,37 @@ def log_request_response(f):
             raise
     
     return decorated_function
+
+
+def send_new_product_email(product):
+    subscribers = NewsletterSubscription.query.filter_by(is_active=True).all()
+    if not subscribers:
+        return
+    
+    # On récupère l'image principale du produit
+    main_image = next((img.url_image for img in product.images if img.est_principale), None)
+    
+    with mail.connect() as conn:
+        for subscriber in subscribers:
+            msg = Message(
+                subject=f"Nouveau Produit : Découvrez notre {product.nom} !",
+                recipients=[subscriber.email],
+                html=f"""
+                <div style="font-family: Arial, sans-serif;">
+                    <h3>Un nouveau délice est arrivé !</h3>
+                    <p>Bonjour,</p>
+                    <p>Nous avons le plaisir de vous présenter notre nouveau produit : <strong>{product.nom}</strong>.</p>
+                    
+                    {'<img src="' + main_image + '" alt="' + product.nom + '" style="max-width: 100%; height: auto;"/>' if main_image else ''}
+                    
+                    <p>{product.description or ''}</p>
+                    <p><strong>Prix :</strong> {product.prix_unitaire} FCFA</p>
+                    <a href="https://VOTRE_SITE_WEB_URL/products/{product.id}" style="...">Voir le produit</a>
+                </div>
+                """
+            )
+            conn.send(msg)
+    current_app.logger.info(f"Email de nouveau produit envoyé à {len(subscribers)} abonnés.")
 
 # ===== DÉCORATEUR COMBINÉ =====
 
@@ -271,6 +303,7 @@ def create_produit():
         nouveau_produit = produit_schema.load(data, session=db.session)
         db.session.add(nouveau_produit)
         db.session.commit()
+        send_new_product_email(nouveau_produit)
         current_app.logger.info(f"✅ Produit créé avec ID: {nouveau_produit.id}")
         return jsonify(produit_schema.dump(nouveau_produit)), 201
     except ValidationError as err:
