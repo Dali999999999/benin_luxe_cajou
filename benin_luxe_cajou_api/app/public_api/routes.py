@@ -1,7 +1,8 @@
 # app/public_api/routes.py
 
 from flask import Blueprint, jsonify, request
-from app.extensions import db
+from flask_mail import Message
+from app.extensions import db, mail
 from app.models import Categorie, Produit, TypeProduit, ZoneLivraison, NewsletterSubscription
 from app.schemas import (
     categories_schema, 
@@ -10,6 +11,8 @@ from app.schemas import (
     zones_livraison_schema,
     newsletter_subscription_schema
 )
+from config import Config
+
 
 public_api_bp = Blueprint('public_api', __name__)
 
@@ -102,3 +105,44 @@ def subscribe_newsletter():
     db.session.commit()
     
     return jsonify({"msg": "Merci ! Vous êtes maintenant inscrit(e) à notre newsletter."}), 201
+
+@public_api_bp.route('/feedback', methods=['POST'])
+def handle_feedback():
+    """
+    Reçoit un feedback du formulaire de contact et l'envoie à l'email support.
+    """
+    data = request.get_json()
+    nom = data.get('nom')
+    prenom = data.get('prenom')
+    email = data.get('email')
+    message = data.get('message')
+
+    if not all([nom, prenom, email, message]):
+        return jsonify({"msg": "Tous les champs sont requis"}), 400
+
+    try:
+        support_email = Config.MAIL_USERNAME # On envoie le mail à l'adresse configurée
+        
+        msg = Message(
+            subject=f"Nouveau Feedback de {prenom} {nom}",
+            sender=Config.MAIL_DEFAULT_SENDER, # L'expéditeur est votre adresse
+            recipients=[support_email],
+            reply_to=email, # Très important pour pouvoir répondre directement au client
+            body=f"""
+            Vous avez reçu un nouveau message depuis le formulaire de contact.
+
+            De: {prenom} {nom}
+            Email: {email}
+            -----------------------------------------
+
+            Message :
+            {message}
+            """
+        )
+        mail.send(msg)
+        
+        return jsonify({"msg": "Merci ! Votre message a bien été envoyé."}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Erreur lors de l'envoi du mail de feedback: {e}", exc_info=True)
+        return jsonify({"msg": "Une erreur est survenue lors de l'envoi du message."}), 500
