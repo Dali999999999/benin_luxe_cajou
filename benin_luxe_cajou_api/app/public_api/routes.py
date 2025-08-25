@@ -1,12 +1,14 @@
 # app/public_api/routes.py
 
 from flask import Blueprint, jsonify, request
-from app.models import Categorie, Produit, TypeProduit, ZoneLivraison
+from app.extensions import db
+from app.models import Categorie, Produit, TypeProduit, ZoneLivraison, NewsletterSubscription
 from app.schemas import (
     categories_schema, 
     produits_schema, 
     produit_schema,
-    zones_livraison_schema
+    zones_livraison_schema,
+    newsletter_subscription_schema
 )
 
 public_api_bp = Blueprint('public_api', __name__)
@@ -79,3 +81,24 @@ def get_public_categories():
     """
     categories = Categorie.query.filter_by(statut='actif').all()
     return jsonify(categories_schema.dump(categories)), 200
+
+@public_api_bp.route('/newsletter/subscribe', methods=['POST'])
+def subscribe_newsletter():
+    """
+    Inscrit un nouvel email à la newsletter.
+    """
+    data = request.get_json()
+    email = data.get('email')
+
+    if not email:
+        return jsonify({"msg": "Email requis"}), 400
+
+    # Vérifier si l'email n'est pas déjà inscrit
+    if NewsletterSubscription.query.filter_by(email=email).first():
+        return jsonify({"msg": "Cet email est déjà inscrit."}), 409 # Conflict
+
+    new_subscription = NewsletterSubscription(email=email)
+    db.session.add(new_subscription)
+    db.session.commit()
+    
+    return jsonify({"msg": "Merci ! Vous êtes maintenant inscrit(e) à notre newsletter."}), 201
