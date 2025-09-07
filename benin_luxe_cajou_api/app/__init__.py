@@ -11,10 +11,17 @@ def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
     
-    # --- 2. ACTIVER CORS POUR TOUTE L'APPLICATION ---
-    # Cette ligne est la clé. Elle dira à l'API d'ajouter les bons
-    # en-têtes pour que les navigateurs autorisent les requêtes.
-    CORS(app)
+    # --- 2. ACTIVER CORS POUR TOUTE L'APPLICATION AVEC COOKIES ---
+    # Configuration CORS pour supporter les cookies (credentials: include)
+    CORS(app, 
+         supports_credentials=True,
+         origins=[
+             'http://localhost:3000',
+             'http://127.0.0.1:3000', 
+             'https://benin-luxe-cajou-frontend.vercel.app'
+         ],
+         allow_headers=['Content-Type', 'Authorization'],
+         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
     # Configuration du logging
     if not app.debug and not app.testing:

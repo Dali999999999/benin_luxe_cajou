@@ -19,14 +19,18 @@ def set_auth_cookies(response, access_token, refresh_token):
     """
     Fonction utilitaire pour définir les cookies d'authentification de manière sécurisée.
     """
+    # Détermine si on est en production (Render ou autre service HTTPS)
+    is_production = current_app.config.get('ENV') == 'production' or 'render.com' in request.url_root
+    
     # Cookie pour l'access_token (1 jour)
     response.set_cookie(
         'access_token',
         access_token,
         max_age=86400,  # 1 jour en secondes
         httponly=True,  # Empêche l'accès via JavaScript
-        secure=True if current_app.config.get('ENV') == 'production' else False,  # HTTPS uniquement en prod
-        samesite='Lax'  # Protection CSRF
+        secure=is_production,  # HTTPS uniquement en prod
+        samesite='None' if is_production else 'Lax',  # None requis pour CORS cross-origin
+        domain=None  # Laisser le navigateur déterminer le domaine
     )
     
     # Cookie pour le refresh_token (7 jours)
@@ -35,8 +39,9 @@ def set_auth_cookies(response, access_token, refresh_token):
         refresh_token,
         max_age=604800,  # 7 jours en secondes
         httponly=True,  # Empêche l'accès via JavaScript
-        secure=True if current_app.config.get('ENV') == 'production' else False,  # HTTPS uniquement en prod
-        samesite='Lax'  # Protection CSRF
+        secure=is_production,  # HTTPS uniquement en prod
+        samesite='None' if is_production else 'Lax',  # None requis pour CORS cross-origin
+        domain=None  # Laisser le navigateur déterminer le domaine
     )
     
     return response
@@ -246,6 +251,59 @@ def client_login():
         return response
     
     return jsonify({"msg": "Email ou mot de passe incorrect"}), 401
+
+@client_auth_bp.route('/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def client_refresh():
+    """
+    Route pour rafraîchir l'access token en utilisant le refresh token.
+    """
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # Vérifier que l'utilisateur existe toujours et est actif
+        user = Utilisateur.query.get(current_user_id)
+        if not user or user.statut != 'actif':
+            return jsonify({"msg": "Utilisateur non trouvé ou inactif"}), 401
+            
+        # Créer un nouvel access token
+        new_access_token = create_access_token(identity=current_user_id)
+        
+        # Créer la réponse avec le cookie mis à jour
+        response = make_response(jsonify({
+            "msg": "Token rafraîchi avec succès",
+            "access_token": new_access_token  # Pour compatibilité
+        }))
+        
+        # Mettre à jour uniquement le cookie access_token
+        is_production = current_app.config.get('ENV') == 'production' or 'render.com' in request.url_root
+        response.set_cookie(
+            'access_token',
+            new_access_token,
+            max_age=86400,  # 1 jour
+            httponly=True,
+            secure=is_production,
+            samesite='None' if is_production else 'Lax'
+        )
+        
+        return response
+        
+    except Exception as e:
+        current_app.logger.error(f"Erreur lors du refresh: {e}")
+        return jsonify({"msg": "Erreur lors du rafraîchissement du token"}), 500
+
+@client_auth_bp.route('/logout', methods=['POST'])
+def client_logout():
+    """
+    Route pour déconnecter l'utilisateur (supprime les cookies).
+    """
+    response = make_response(jsonify({"msg": "Déconnexion réussie"}))
+    
+    # Supprimer les cookies
+    response.set_cookie('access_token', '', max_age=0, httponly=True)
+    response.set_cookie('refresh_token', '', max_age=0, httponly=True)
+    
+    return response
 
 @client_auth_bp.route('/resend-verification', methods=['POST'])
 def resend_verification_code():
