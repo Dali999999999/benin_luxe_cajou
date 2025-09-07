@@ -1,6 +1,6 @@
 # app/client_auth/routes.py
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, make_response
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required, decode_token
 from flask_mail import Message
 from jwt.exceptions import ExpiredSignatureError  # Importation correcte
@@ -14,6 +14,32 @@ client_auth_bp = Blueprint('client_auth', __name__)
 
 
 # --- FONCTIONS UTILITAIRES LOCALES À CE FICHIER ---
+
+def set_auth_cookies(response, access_token, refresh_token):
+    """
+    Fonction utilitaire pour définir les cookies d'authentification de manière sécurisée.
+    """
+    # Cookie pour l'access_token (1 jour)
+    response.set_cookie(
+        'access_token',
+        access_token,
+        max_age=86400,  # 1 jour en secondes
+        httponly=True,  # Empêche l'accès via JavaScript
+        secure=True if current_app.config.get('ENV') == 'production' else False,  # HTTPS uniquement en prod
+        samesite='Lax'  # Protection CSRF
+    )
+    
+    # Cookie pour le refresh_token (7 jours)
+    response.set_cookie(
+        'refresh_token',
+        refresh_token,
+        max_age=604800,  # 7 jours en secondes
+        httponly=True,  # Empêche l'accès via JavaScript
+        secure=True if current_app.config.get('ENV') == 'production' else False,  # HTTPS uniquement en prod
+        samesite='Lax'  # Protection CSRF
+    )
+    
+    return response
 
 def send_verification_email(user_email, code, subject):
     """
@@ -158,7 +184,16 @@ def client_verify_account():
             
             access_token = create_access_token(identity=str(user.id))
             refresh_token = create_refresh_token(identity=str(user.id))
-            return jsonify(access_token=access_token, refresh_token=refresh_token), 200
+            
+            # Créer la réponse avec les cookies sécurisés
+            response = make_response(jsonify({
+                "msg": "Compte vérifié avec succès",
+                "access_token": access_token,  # Garde aussi dans le body pour compatibilité
+                "refresh_token": refresh_token
+            }), 200)
+            
+            response = set_auth_cookies(response, access_token, refresh_token)
+            return response
         else:
             # Le code à 6 chiffres est incorrect
             return jsonify({"msg": "Code de vérification incorrect."}), 400
@@ -199,7 +234,16 @@ def client_login():
         
         access_token = create_access_token(identity=str(user.id))
         refresh_token = create_refresh_token(identity=str(user.id))
-        return jsonify(access_token=access_token, refresh_token=refresh_token)
+        
+        # Créer la réponse avec les cookies sécurisés
+        response = make_response(jsonify({
+            "msg": "Connexion réussie",
+            "access_token": access_token,  # Garde aussi dans le body pour compatibilité
+            "refresh_token": refresh_token
+        }))
+        
+        response = set_auth_cookies(response, access_token, refresh_token)
+        return response
     
     return jsonify({"msg": "Email ou mot de passe incorrect"}), 401
 
@@ -349,4 +393,21 @@ def client_reset_password():
 def refresh_client_token():
     current_user_id = get_jwt_identity()
     new_access_token = create_access_token(identity=current_user_id)
-    return jsonify(access_token=new_access_token)
+    
+    # Créer la réponse avec les cookies sécurisés
+    response = make_response(jsonify({
+        "msg": "Token rafraîchi avec succès",
+        "access_token": new_access_token  # Garde aussi dans le body pour compatibilité
+    }))
+    
+    # Mettre à jour seulement l'access token (le refresh token reste valide)
+    response.set_cookie(
+        'access_token',
+        new_access_token,
+        max_age=86400,  # 1 jour en secondes
+        httponly=True,  # Empêche l'accès via JavaScript
+        secure=True if current_app.config.get('ENV') == 'production' else False,  # HTTPS uniquement en prod
+        samesite='Lax'  # Protection CSRF
+    )
+    
+    return response
