@@ -2,7 +2,7 @@
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app.models import Commande, Utilisateur, SuiviCommande
+from app.models import Commande, Utilisateur, SuiviCommande, DetailsCommande, Produit
 from app.extensions import db
 from app.schemas import commandes_schema, commande_schema, utilisateur_schema, utilisateurs_schema
 from app.admin.admin_auth import admin_required
@@ -73,6 +73,76 @@ def update_order_status(order_id):
     send_status_update_email(commande)
     
     return jsonify(commande_schema.dump(commande)), 200
+
+@orders_admin_bp.route('/<int:order_id>/cancel', methods=['POST'])
+@admin_required()
+def cancel_order(order_id):
+    """
+    Annule une commande et restaure automatiquement le stock de tous les produits.
+    
+    Actions effectuées :
+    1. Vérifier que la commande peut être annulée
+    2. Restaurer le stock de tous les produits
+    3. Marquer la commande comme annulée
+    4. Ajouter un suivi d'annulation
+    5. Envoyer notification client (email)
+    """
+    admin_id = int(get_jwt_identity())
+    commande = Commande.query.get_or_404(order_id)
+    
+    # 1. Vérifier que la commande peut être annulée
+    if commande.statut in ['livree', 'annulee']:
+        return jsonify({
+            "msg": f"Impossible d'annuler une commande déjà {commande.statut}"
+        }), 400
+    
+    try:
+        # 2. Restaurer le stock de tous les produits de la commande
+        details = DetailsCommande.query.filter_by(commande_id=order_id).all()
+        
+        for detail in details:
+            produit = Produit.query.get(detail.produit_id)
+            if produit and produit.gestion_stock == 'limite':
+                # Restaurer le stock
+                produit.stock_disponible += detail.quantite
+                print(f"Stock restauré pour produit {produit.nom}: +{detail.quantite} (nouveau stock: {produit.stock_disponible})")
+        
+        # 3. Marquer la commande comme annulée
+        old_status = commande.statut
+        commande.statut = 'annulee'
+        commande.statut_paiement = 'rembourse'  # Considérer comme remboursé
+        
+        # 4. Ajouter un enregistrement de suivi
+        suivi = SuiviCommande(
+            commande_id=order_id,
+            statut='annulee',
+            message=f"Commande annulée par l'administrateur. Stock restauré automatiquement.",
+            modifie_par=admin_id
+        )
+        db.session.add(suivi)
+        
+        # 5. Commit toutes les modifications
+        db.session.commit()
+        
+        # 6. Envoyer notification email au client
+        send_status_update_email(commande)
+        
+        return jsonify({
+            "msg": f"Commande #{commande.numero_commande} annulée avec succès",
+            "ancien_statut": old_status,
+            "nouveau_statut": "annulee",
+            "stock_restaure": True,
+            "commande": commande_schema.dump(commande)
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Erreur lors de l'annulation de la commande {order_id}: {str(e)}")
+        return jsonify({
+            "msg": "Erreur lors de l'annulation de la commande",
+            "error": str(e)
+        }), 500
+
 # --- GESTION DES CLIENTS ---
 
 @orders_admin_bp.route('/clients', methods=['GET'])
