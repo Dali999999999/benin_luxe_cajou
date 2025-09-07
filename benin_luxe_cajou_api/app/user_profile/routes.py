@@ -91,7 +91,11 @@ def get_user_orders():
     """
     # On s'attend à recevoir l'ID sous forme de string, on le convertit en entier
     user_id = int(get_jwt_identity())
-    orders = Commande.query.filter_by(utilisateur_id=user_id).order_by(Commande.date_commande.desc()).all()
+    # Récupérer seulement les commandes confirmées (masquer celles en attente de paiement)
+    orders = Commande.query.filter(
+        Commande.utilisateur_id == user_id,
+        Commande.statut != 'en_attente'
+    ).order_by(Commande.date_commande.desc()).all()
     return jsonify(commandes_summary_schema.dump(orders)), 200
 
 @user_profile_bp.route('/orders/<int:order_id>', methods=['GET'])
