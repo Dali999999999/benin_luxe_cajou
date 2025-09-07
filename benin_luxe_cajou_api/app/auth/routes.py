@@ -1,7 +1,7 @@
 # app/auth/routes.py
 
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required
 from flask_mail import Message
 import secrets
 import logging
@@ -220,12 +220,13 @@ def admin_login():
         print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🔍 Vérification mot de passe pour: {email}")
         
         if admin.check_password(password):
-            # Création du token JWT qui contient l'ID de l'admin
+            # Création des tokens JWT (access + refresh)
             access_token = create_access_token(identity=str(admin.id))
+            refresh_token = create_refresh_token(identity=str(admin.id))
             
             print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ✅ SUCCÈS - Connexion réussie: {email} - ID: {admin.id} - IP: {client_ip}")
             print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🎫 Token JWT généré pour ID: {admin.id}")
-            return jsonify(access_token=access_token)
+            return jsonify(access_token=access_token, refresh_token=refresh_token)
         else:
             print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - ❌ ÉCHEC - Mot de passe incorrect: {email} - IP: {client_ip}")
             return jsonify({"msg": "Email ou mot de passe incorrect"}), 401
@@ -345,6 +346,16 @@ def admin_reset_password():
     
     finally:
         print(f"[{route_name}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 🏁 FIN - IP: {client_ip}")
+
+@auth_bp.route('/admin/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def admin_refresh():
+    """
+    Route pour rafraîchir le token d'accès admin.
+    """
+    current_user_id = get_jwt_identity()
+    new_access_token = create_access_token(identity=current_user_id)
+    return jsonify(access_token=new_access_token)
 
 # --- ROUTES POUR LES CLIENTS (À DÉVELOPPER PLUS TARD) ---
 # ...
