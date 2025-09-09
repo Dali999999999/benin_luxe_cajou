@@ -430,3 +430,78 @@ def set_primary_image(image_id):
     db.session.commit()
     current_app.logger.info(f"✅ Image {image_id} définie comme principale")
     return jsonify({"message": "Image principale définie avec succès"}), 200
+
+# --- ROUTES DE SUPPRESSION ---
+
+@products_admin_bp.route('/categories/<int:id>', methods=['DELETE'])
+@admin_with_logging()
+def delete_categorie(id):
+    current_app.logger.info(f"🗑️ DELETE /api/admin/categories/{id} - Suppression de la catégorie")
+    try:
+        categorie = Categorie.query.get_or_404(id)
+        current_app.logger.info(f"📂 Catégorie trouvée: {categorie.nom}")
+        
+        # Vérifier s'il y a des types de produits liés à cette catégorie
+        types_lies = TypeProduit.query.filter_by(category_id=id).count()
+        if types_lies > 0:
+            current_app.logger.warning(f"⚠️ Impossible de supprimer la catégorie: {types_lies} types de produits liés")
+            return jsonify({"error": f"Impossible de supprimer cette catégorie. {types_lies} type(s) de produit(s) y sont associé(s)."}), 400
+        
+        db.session.delete(categorie)
+        db.session.commit()
+        current_app.logger.info(f"✅ Catégorie {id} supprimée avec succès")
+        return jsonify({"message": "Catégorie supprimée avec succès"}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"❌ Erreur lors de la suppression de la catégorie {id}: {str(e)}")
+        return jsonify({"error": "Erreur interne du serveur"}), 500
+
+@products_admin_bp.route('/product-types/<int:id>', methods=['DELETE'])
+@admin_with_logging()
+def delete_type_produit(id):
+    current_app.logger.info(f"🗑️ DELETE /api/admin/product-types/{id} - Suppression du type de produit")
+    try:
+        type_produit = TypeProduit.query.get_or_404(id)
+        current_app.logger.info(f"📂 Type de produit trouvé: {type_produit.nom}")
+        
+        # Vérifier s'il y a des produits liés à ce type
+        produits_lies = Produit.query.filter_by(type_produit_id=id).count()
+        if produits_lies > 0:
+            current_app.logger.warning(f"⚠️ Impossible de supprimer le type de produit: {produits_lies} produits liés")
+            return jsonify({"error": f"Impossible de supprimer ce type de produit. {produits_lies} produit(s) y sont associé(s)."}), 400
+        
+        db.session.delete(type_produit)
+        db.session.commit()
+        current_app.logger.info(f"✅ Type de produit {id} supprimé avec succès")
+        return jsonify({"message": "Type de produit supprimé avec succès"}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"❌ Erreur lors de la suppression du type de produit {id}: {str(e)}")
+        return jsonify({"error": "Erreur interne du serveur"}), 500
+
+@products_admin_bp.route('/products/<int:id>', methods=['DELETE'])
+@admin_with_logging()
+def delete_produit(id):
+    current_app.logger.info(f"🗑️ DELETE /api/admin/products/{id} - Suppression du produit")
+    try:
+        produit = Produit.query.get_or_404(id)
+        current_app.logger.info(f"📂 Produit trouvé: {produit.nom}")
+        
+        # Supprimer d'abord toutes les images associées
+        images = ImageProduit.query.filter_by(produit_id=id).all()
+        for image in images:
+            db.session.delete(image)
+        current_app.logger.info(f"🗑️ {len(images)} image(s) supprimée(s)")
+        
+        # Supprimer le produit
+        db.session.delete(produit)
+        db.session.commit()
+        current_app.logger.info(f"✅ Produit {id} supprimé avec succès")
+        return jsonify({"message": "Produit supprimé avec succès"}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"❌ Erreur lors de la suppression du produit {id}: {str(e)}")
+        return jsonify({"error": "Erreur interne du serveur"}), 500
